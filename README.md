@@ -149,4 +149,4 @@ P0 先定义同一只读语义，而不是为每种传输重写逻辑：
 
 ## 项目状态
 
-**Discovery / 接口收敛。** 当前不按目录草图 scaffold；先冻结 P0 契约、完成两个真实 adapter 的 tracer bullet，再决定 Horizon 实现范围和 ADR 状态。
+**Discovery / tracer bullet 实施。** 已按 Draft 契约建立最小 FastAPI + PostgreSQL 垂直切片，用于验证两个真实 adapter、Snapshot、Digest 与 Feedback；它不是完整 MVP，暂不包含 UI、模型精评、任务队列、Email 或中文 connector。开发服务器操作见 [Runbook](./docs/runbooks/development-server.md)。
