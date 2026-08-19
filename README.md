@@ -90,6 +90,10 @@ flowchart LR
 
 完整证据、阶段性结论与更新记录见 [`docs/research`](./docs/research/README.md)。
 
+## 技术决策
+
+- [ADR-0001：后端主语言与 Horizon 集成边界](./docs/decisions/0001-backend-language-and-boundary.md) — `Proposed`
+
 ## 验收方向
 
 选型阶段结束时，应能回答：
