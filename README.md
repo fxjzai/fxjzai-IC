@@ -33,7 +33,7 @@ P0 首先回答：团队是否真的愿意每天阅读 Digest，它是否稳定�
 
 | 阶段 | 产品闭环 | 规范实体 |
 | --- | --- | --- |
-| P0 | 可信采集 → 可解释 Digest → Feedback | `Source`、`SourceEndpoint`、`SourcePolicy`、`RawDocument`、`Item`、可选 `Issue`、`Score`、`Digest`、`Feedback` |
+| P0 | 可信采集 → 可回放筛选 → 可解释 Digest → Feedback | `Source`、`SourceEndpoint`、`SourcePolicy`、`RawDocument`、`Item`、可选 `Issue`、`CandidateSnapshot`、`Score`、`Digest`、`Feedback` |
 | P0.5 | 跨源事件聚类 | `Story` |
 | P1 | 经人工接受的 Claim 编译为长期知识 | `Claim`、`KnowledgeCard`、`KnowledgeIndex` |
 | P2 | 知识本体和多租户商业能力 | `Concept`、`OpenQuestion`、多租户 `WorkspaceSubscription` |
@@ -49,7 +49,8 @@ flowchart LR
     S["Source + SourcePolicy"] --> EP["SourceEndpoint\nRSS / Email / Web / API"]
     EP --> I["Ingest module\nfetch / parse / normalize / deduplicate"]
     I --> D[("RawDocument + Item")]
-    D --> SEL["Select module\nprescreen / score / summarize"]
+    D --> CS["CandidateSnapshot"]
+    CS --> SEL["Select module\nprescreen / score / summarize"]
     SEL --> DG["Digest\n精选 / 日报 / Top 3"]
     DG --> R["统一只读 interface"]
     R --> O["Web / HTTP / RSS / Agent adapters"]
@@ -61,7 +62,7 @@ flowchart LR
 P0 只有两个核心写入 module：
 
 - `Ingest.ingest(endpoint) → IngestResult`：隐藏抓取、原始保存、解析、规范化、确定性去重、provenance、检查点与失败恢复；
-- `Select.select(scope, policy) → Digest`：隐藏候选快照、预筛、评分、摘要、推荐理由与发布幂等。
+- `Select.create_candidate_snapshot(scope) → snapshot` 与 `Select.select(snapshot, policy) → Digest`：持久化封闭候选集，隐藏预筛、评分、摘要、推荐理由与发布幂等。
 
 `worker`、队列和时钟是运行拓扑，不是领域 module。P1 的 `Compile` 只有在团队形成稳定的 Digest 阅读、Claim 接受和 Wiki 审核行为后才建立。
 
@@ -75,7 +76,7 @@ P0 只有两个核心写入 module：
 | [Horizon](https://github.com/Thysrael/Horizon) | Ingest 内部 adapter/implementation 的优先验证候选 | 部分 fetcher、解析工具、模型 provider routing | `ContentItem`、评分语义和整条 pipeline 不构成 IC interface；无数据库、常驻调度、反馈和产品层 |
 | [ai-news-aggregator](https://github.com/SuYxh/ai-news-aggregator) | 中文源发现与 UI/静态 Feed 参考 | 53 个公众号候选、快照思路、轻量信息流 | 公众号全部依赖单一第三方镜像、时间可能失真、无正式 LICENSE，不直接复制代码或依赖数据 |
 
-Horizon 的 seam 已下移到 `Ingest` implementation 内部：`FetchAdapter.fetch(endpoint) → RawDocument`。只有 Horizon 与至少一个非 Horizon 的生产 adapter 通过同一 Ingest 契约测试后，才能宣称 Horizon 可替换。
+Horizon 的 seam 已下移到 `Ingest` implementation 内部：`FetchAdapter.fetch(endpoint) → RawDocument`。第一发固定使用 Native RSS 作为第二个生产 adapter；两者通过同一 Ingest 契约测试后，才能宣称 Horizon 可替换。
 
 ## P0 候选范围
 
@@ -86,6 +87,7 @@ Horizon 的 seam 已下移到 `Ingest` implementation 内部：`FetchAdapter.fet
 - 至少一个国际来源和一个合规中文来源；
 - 增量 Ingest、确定性去重和逐源运行状态；
 - 预筛、版本化 Score、中文摘要和推荐理由；
+- 持久化 CandidateSnapshot 与可回放策略评估；
 - Digest（精选、日报或 Top 3 的统一产物）；
 - 一种主动推送；
 - HTTP/RSS 读取与最小 Feedback；
@@ -117,12 +119,13 @@ P0 先定义同一只读语义，而不是为每种传输重写逻辑：
 ## 当前验证队列
 
 1. 评审并冻结 [P0 数据契约](./docs/specs/p0-domain-contract.md)；
-2. 选择 PostgreSQL-backed queue，并验证租约、重试、死信和幂等；
+2. 按 [P0 第一发 tracer bullet](./docs/plans/p0-tracer-bullet.md) 确定两个来源和 health 暴露方式；
 3. 确定 Horizon 的引入方式：内部 fork、提取低层 fetcher，或按 interface 重写；
-4. 用 Horizon 与一个非 Horizon adapter 完成相同 Ingest 契约测试；
-5. 用真实中英文来源跑通 `Ingest → Select → Digest → Feedback` tracer bullet；
-6. 运行 500 / 1,000 / 2,000 条每日负载与成本实验；
-7. 团队连续使用 Digest 后，再决定 Story 和 Compile 是否立项。
+4. 用 Horizon 与 Native RSS 两个 adapter 完成相同 Ingest 契约测试；
+5. 跑通第一发 `Ingest → Snapshot → Select → Digest → Feedback`；
+6. 再单独验证合规中文来源、Email 和 PostgreSQL-backed queue；
+7. 运行 500 / 1,000 / 2,000 条每日负载与成本实验；
+8. 团队连续使用 Digest 后，再决定 Story 和 Compile 是否立项。
 
 研究证据与历史假设见 [`docs/research`](./docs/research/README.md)。
 
@@ -131,6 +134,7 @@ P0 先定义同一只读语义，而不是为每种传输重写逻辑：
 - [ADR-0001：后端主语言与运行形态](./docs/decisions/0001-backend-language-and-boundary.md) — `Proposed`
 - [ADR-0002：P0 范围与深模块 interface](./docs/decisions/0002-p0-scope-and-module-interfaces.md) — `Proposed`
 - [P0 规范数据契约](./docs/specs/p0-domain-contract.md) — `Draft`
+- [P0 第一发 tracer bullet](./docs/plans/p0-tracer-bullet.md) — `Draft / 等待选择`
 
 ## 合规与使用约束
 

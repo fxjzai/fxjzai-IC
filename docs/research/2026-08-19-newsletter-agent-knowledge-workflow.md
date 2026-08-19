@@ -105,7 +105,7 @@ Newsletter 是 `Source`；Email、RSS、Web、API 是同一 Source 的 `SourceEn
 
 | 阶段 | 实体 | 目的 |
 | --- | --- | --- |
-| P0 | `Source`、`SourceEndpoint`、`SourcePolicy`、`RawDocument`、`Item`、可选 `Issue`、`Score`、`Digest`、`Feedback` | 可信采集、可解释筛选、回源和校准 |
+| P0 | `Source`、`SourceEndpoint`、`SourcePolicy`、`RawDocument`、`Item`、可选 `Issue`、`CandidateSnapshot`、`Score`、`Digest`、`Feedback` | 可信采集、可回放筛选、回源和校准 |
 | P0.5 | `Story` | 验证跨源事件聚类 |
 | P1 | `Claim`、`KnowledgeCard`、`KnowledgeIndex` | 长期知识编译与 index-first 检索 |
 | P2 | `Concept`、`OpenQuestion`、多租户 `WorkspaceSubscription` | 知识本体与商业化能力 |
@@ -133,6 +133,7 @@ Newsletter Source
   → Email / RSS / Web / API Endpoint
   → 不可变 RawDocument
   → 可选 Issue + 规范 Item
+  → 持久化 CandidateSnapshot
   → 版本化 Score
   → must-know + discovery Digest
   → Item 读取视图 + 回源
@@ -188,7 +189,7 @@ P0 使用率与反馈成立后，再评估 Claim 边界、证据 span、Knowledg
 - 专用收件地址或显式转发，不连接个人全量邮箱；
 - Newsletter 作为 Source，Email/RSS/Web/API 作为 SourceEndpoint；
 - RawDocument、规范 Item、provenance 和 SourcePolicy；
-- 版本化 Score、双通道 Digest 和最小 Feedback；
+- 持久化 CandidateSnapshot、版本化 Score、双通道 Digest 和最小 Feedback；
 - Item 读取视图、逐源健康状态和成本审计。
 
 ### P0.5

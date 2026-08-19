@@ -54,6 +54,8 @@ async ingest(endpoint: SourceEndpointRef) -> IngestResult
 
 `Issue` 只是 Newsletter、期刊等天然存在“期次”时的可选父级。普通 RSS 文章不得为了统一结构而伪造 Issue。
 
+`IngestResult` 至少说明本次 run 的 checkpoint 前后值、新 Item、新 revision、重复、隔离区、provenance、类型化错误与 endpoint health observation。调用方不得通过查询数据库猜测运行结果。
+
 ### 内部 Fetch seam
 
 Horizon 位于 Ingest implementation 内部的 seam：
@@ -71,7 +73,7 @@ Fetch adapter 只负责协议访问、鉴权、限流、原始响应 provenance 
 
 Horizon 是 `HorizonFetchAdapter` 的候选实现。若某个 Horizon fetcher 只输出丢失原始响应和增量 provenance 的扁平 `ContentItem`，它不能被伪装成 `RawDocument`；应提取更低层能力、编写原生 adapter，或放弃复用。
 
-只有 Horizon 与至少一个非 Horizon 的生产 adapter（如原生 RSS、Email 或经合规验证的中文源）均通过同一 Ingest 契约测试后，才可宣称该 seam 真实且 Horizon 可替换。只有一个生产 adapter 时，不建立复杂注册框架。
+第一发 tracer bullet 固定使用 `NativeRssFetchAdapter` 作为非 Horizon 生产 adapter；Email 与中文来源另行验证。只有它与 Horizon adapter 均通过同一 Ingest 契约测试后，才可宣称该 seam 真实且 Horizon 可替换。只有一个生产 adapter 时，不建立复杂注册框架。
 
 ### 错误与幂等
 
@@ -92,12 +94,13 @@ Ingest 只在 worker 作业中执行；网络期间不持有数据库长事务�
 ### 外部 interface
 
 ```python
-async select(scope: SelectionScope, policy: PolicyRef) -> Digest
+async create_candidate_snapshot(scope: SelectionScope) -> CandidateSnapshotRef
+async select(snapshot: CandidateSnapshotRef, policy: PolicyRef) -> Digest
 ```
 
 调用方不需要了解候选查询、模型层级或评分流水线。Select 自己负责：
 
-- 建立有界、可重放的候选快照；
+- 按 scope 建立并持久化有界、封闭、可重放的 CandidateSnapshot；
 - 过滤不可用、重复或策略不允许处理的 Item；
 - 低成本预筛与必要的强模型精评；
 - 追加带模型、提示词、输入 hash 和策略版本的 `Score`；
@@ -105,6 +108,8 @@ async select(scope: SelectionScope, policy: PolicyRef) -> Digest
 - 持久化 `Digest` 并避免重复发布。
 
 精选流、日报和 Top 3 是同一个 Digest 的不同 `kind/policy/view`，不是三个 module。
+
+CandidateSnapshot 的 Item ref 必须绑定 `item_id + content_hash`。`select` 与策略回放只接收 snapshot id，不得现场重查。日报 snapshot 按 timezone 和固定周期封闭；增量精选 snapshot 按同 kind 上次已发布 Digest watermark 之后的新 Item、稳定排序与硬上限封闭。一个 snapshot 只对应一种 Digest kind。
 
 ### 错误与幂等
 
@@ -118,6 +123,8 @@ async select(scope: SelectionScope, policy: PolicyRef) -> Digest
 - Digest 先持久化，再由推送 adapter 发布。
 
 候选范围必须有时间和数量上限；强模型只处理预筛后的小集合；记录候选压缩率、强模型调用量、延迟、成本与失败恢复。
+
+Score 和 Digest entry 均绑定 Item 的 content hash。Item revision 变化后旧 Score 标记 stale、保留不改；全文超过保留期后的策略回放只使用 excerpt 与元数据，并将结果标记 degraded。
 
 ## P0：统一只读能力面
 
@@ -137,6 +144,8 @@ class ReadIntelligence:
 
 读取路径不得同步调用 LLM；搜索必须分页并使用稳定游标。不存在、因保留策略删除、无权访问和索引暂不可用必须可区分。
 
+`ItemView` 必须表明具体 content hash、Source、canonical URL、时间、短摘录、当前 Score 版本、provenance 与原始 payload 可用状态；默认不返回 RawDocument 全文。
+
 如果 P0 只有 HTTP，不为了假想传输创建多层 port；当 HTTP 与 MCP/Web 等第二个真实 adapter 共用同一语义后，传输 seam 才成立。
 
 ## P0：Feedback 校准闭环
@@ -145,7 +154,7 @@ class ReadIntelligence:
 async record_feedback(target: FeedbackTarget, verdict: FeedbackVerdict) -> FeedbackReceipt
 ```
 
-P0 verdict 至少包含“有用、无用、误判”。implementation 负责验证目标、关联当时的 Item/Digest/Score/策略版本、幂等追加与审计。
+P0 verdict 至少包含“有用、无用、误判”。FeedbackTarget 明确区分 Digest entry 与直接 Item；implementation 负责固化当时的 `item_id + content_hash + score_id + policy_version`，并完成幂等追加与审计。
 
 一次 Feedback 不得同步修改 Source 等级、模型权重或在线策略。校准流程是：
 
@@ -186,7 +195,7 @@ module 测试应从 `ingest`、`select`、统一读取 interface 和 `record_fee
 
 ## 转为 Accepted 的验证门槛
 
-1. Horizon 与一个非 Horizon 的生产 Fetch adapter 通过同一 Ingest 契约测试；
+1. Horizon 与 Native RSS 两个生产 Fetch adapter 通过同一 Ingest 契约测试；
 2. 重复投递、崩溃、限流、解析失败和 checkpoint 恢复不制造重复 Item；
 3. 相同选择运行重放不生成重复 Digest 或重复推送；
 4. 每条 Digest entry 可追溯到 Item、Score、策略和原始内容；
@@ -200,6 +209,6 @@ module 测试应从 `ingest`、`select`、统一读取 interface 和 `record_fee
 - PostgreSQL queue 的具体实现库；
 - Horizon 采用内部 fork、vendored subset，还是仅参考重写 fetcher；
 - 微信公众号 connector 是否进入 P0，还是在合规与多上游方案成立后进入 P0.5；
-- P0 的第二个非 Horizon 生产 adapter 选择原生 RSS、Email 还是中文源；
+- 第一发 tracer bullet 的具体 Native RSS 与 Horizon 来源组合；
+- endpoint health 第一发只进入日志/指标，还是增加最小 ops 读取 interface；
 - 只读能力面的第二个真实传输 adapter 是 Web 还是 MCP。
-
