@@ -88,6 +88,8 @@ flowchart LR
 6. 用真实中英文信源做一条端到端 tracer bullet；
 7. 再据验证结果确定 fork、组合或独立适配层方案。
 
+完整证据、阶段性结论与更新记录见 [`docs/research`](./docs/research/README.md)。
+
 ## 验收方向
 
 选型阶段结束时，应能回答：
