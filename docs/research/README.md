@@ -15,5 +15,4 @@
 | 日期 | 主题 | 状态 |
 | --- | --- | --- |
 | 2026-08-19 | [首轮平台基线：AIHOT / Horizon / ai-news-aggregator](./2026-08-19-platform-baseline.md) | 已完成初步代码与接口核查 |
-| 2026-08-19 | Newsletter → Agent → LLM Wiki 信息工作流 | 调研中 |
-
+| 2026-08-19 | [Newsletter → Agent → LLM Wiki 信息工作流](./2026-08-19-newsletter-agent-knowledge-workflow.md) | 已完成初步信源、技术与产品核查 |
