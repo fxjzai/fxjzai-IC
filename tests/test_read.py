@@ -8,17 +8,15 @@ from ic.select import Select, SelectionScope
 
 
 class Feed:
-    async def fetch(self, endpoint: SourceEndpoint) -> list[FetchedDocument]:
-        return [
-            FetchedDocument(
-                observed_at=datetime(2026, 8, 19, 10, tzinfo=UTC),
-                media_type="application/rss+xml",
-                payload=b"""<rss><channel><item><guid>one</guid><title>One</title>
+    async def fetch(self, endpoint: SourceEndpoint):  # type: ignore[no-untyped-def]
+        yield FetchedDocument(
+            observed_at=datetime(2026, 8, 19, 10, tzinfo=UTC),
+            media_type="application/rss+xml",
+            payload=b"""<rss><channel><item><guid>one</guid><title>One</title>
                 <link>https://example.test/one</link><description>Evidence.</description>
                 </item></channel></rss>""",
-                source_url=endpoint.locator,
-            )
-        ]
+            source_url=endpoint.locator,
+        )
 
 
 async def test_item_view_is_traceable_and_does_not_return_fulltext() -> None:
@@ -30,8 +28,8 @@ async def test_item_view_is_traceable_and_does_not_return_fulltext() -> None:
     snapshot = selector.create_candidate_snapshot(
         SelectionScope(
             kind="daily",
-            period_start=datetime(2026, 8, 19, tzinfo=UTC),
-            period_end=datetime(2026, 8, 20, tzinfo=UTC),
+            period_start=datetime(2026, 8, 18, 16, tzinfo=UTC),
+            period_end=datetime(2026, 8, 19, 16, tzinfo=UTC),
             timezone="Asia/Shanghai",
         )
     )

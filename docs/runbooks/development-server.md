@@ -59,11 +59,9 @@ docker compose logs --follow api
 ## Run the tracer flow
 
 ```bash
-curl --fail --silent --request POST \
-  http://127.0.0.1:18000/v1/ingest/openai-news-rss
+docker compose run --rm api ic ingest openai-news-rss
 
-curl --fail --silent --request POST \
-  http://127.0.0.1:18000/v1/ingest/horizon-hacker-news
+docker compose run --rm api ic ingest horizon-hacker-news
 ```
 
 随后以当日 UTC 时间窗创建 snapshot；从响应复制 `snapshot_id`，再生成 Digest：
@@ -71,7 +69,7 @@ curl --fail --silent --request POST \
 ```bash
 curl --fail --silent --request POST \
   --header 'content-type: application/json' \
-  --data '{"kind":"daily","period_start":"2026-08-19T00:00:00Z","period_end":"2026-08-20T00:00:00Z","timezone":"Asia/Shanghai","limit":50}' \
+  --data '{"kind":"daily","period_start":"2026-08-18T16:00:00Z","period_end":"2026-08-19T16:00:00Z","timezone":"Asia/Shanghai","limit":50}' \
   http://127.0.0.1:18000/v1/snapshots
 
 curl --fail --silent --request POST \

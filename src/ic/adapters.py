@@ -2,11 +2,12 @@ from __future__ import annotations
 
 import asyncio
 import json
-from datetime import UTC, datetime
+from collections.abc import AsyncIterator
+from datetime import UTC, datetime, timedelta
 
 import httpx
 
-from ic.domain import FetchedDocument, SourceEndpoint
+from ic.domain import FetchedDocument, FetchFailure, PartialFetchError, SourceEndpoint
 
 
 class NativeRssFetchAdapter:
@@ -15,18 +16,16 @@ class NativeRssFetchAdapter:
     def __init__(self, client: httpx.AsyncClient) -> None:
         self._client = client
 
-    async def fetch(self, endpoint: SourceEndpoint) -> list[FetchedDocument]:
+    async def fetch(self, endpoint: SourceEndpoint) -> AsyncIterator[FetchedDocument]:
         response = await self._client.get(endpoint.locator, follow_redirects=True)
         response.raise_for_status()
         media_type = response.headers.get("content-type", "application/xml").split(";", 1)[0]
-        return [
-            FetchedDocument(
-                observed_at=datetime.now(UTC),
-                media_type=media_type,
-                payload=response.content,
-                source_url=str(response.url),
-            )
-        ]
+        yield FetchedDocument(
+            observed_at=datetime.now(UTC),
+            media_type=media_type,
+            payload=response.content,
+            source_url=str(response.url),
+        )
 
 
 class HorizonHackerNewsFetchAdapter:
@@ -41,7 +40,7 @@ class HorizonHackerNewsFetchAdapter:
     def __init__(self, client: httpx.AsyncClient) -> None:
         self._client = client
 
-    async def fetch(self, endpoint: SourceEndpoint) -> list[FetchedDocument]:
+    async def fetch(self, endpoint: SourceEndpoint) -> AsyncIterator[FetchedDocument]:
         observed_at = datetime.now(UTC)
         base_url = endpoint.locator.rstrip("/")
         top_response = await self._client.get(f"{base_url}/topstories.json")
@@ -66,12 +65,38 @@ class HorizonHackerNewsFetchAdapter:
                 upstream_id=str(story_id),
             )
 
-        stories = await asyncio.gather(*(fetch_story(story_id) for story_id in selected_ids))
-        discovery = FetchedDocument(
+        yield FetchedDocument(
             observed_at=observed_at,
             media_type="application/json",
             payload=top_response.content,
             source_url=f"{base_url}/topstories.json",
             role="discovery",
         )
-        return [discovery, *stories]
+        results = await asyncio.gather(
+            *(fetch_story(story_id) for story_id in selected_ids), return_exceptions=True
+        )
+        failures: list[FetchFailure] = []
+        for story_id, result in zip(selected_ids, results, strict=True):
+            if isinstance(result, BaseException):
+                failures.append(self._failure(story_id, result))
+            else:
+                yield result
+        if failures:
+            raise PartialFetchError(failures)
+
+    @staticmethod
+    def _failure(story_id: int, error: BaseException) -> FetchFailure:
+        retryable = isinstance(error, httpx.TransportError)
+        retry_at = None
+        if isinstance(error, httpx.HTTPStatusError):
+            retryable = error.response.status_code == 429 or error.response.status_code >= 500
+            retry_after = error.response.headers.get("retry-after")
+            if retry_after and retry_after.isdigit():
+                retry_at = datetime.now(UTC) + timedelta(seconds=int(retry_after))
+        return FetchFailure(
+            error_type=type(error).__name__,
+            message=str(error),
+            retryable=retryable,
+            upstream_id=str(story_id),
+            retry_at=retry_at,
+        )

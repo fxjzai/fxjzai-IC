@@ -3,13 +3,17 @@ from __future__ import annotations
 import calendar
 import hashlib
 import json
+import logging
+import time
 import uuid
+from collections.abc import AsyncIterator
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from time import struct_time
 from typing import Protocol
 
 import feedparser
+import httpx
 from pydantic import BaseModel, Field
 from sqlalchemy import select, update
 from sqlalchemy.orm import Session
@@ -22,12 +26,37 @@ from ic.db import (
     RawDocumentRow,
     ScoreRow,
     SourceEndpointRow,
+    SourcePolicyRow,
 )
-from ic.domain import EndpointKind, FetchedDocument, SourceEndpoint
+from ic.domain import EndpointKind, FetchedDocument, FetchFailure, PartialFetchError, SourceEndpoint
+from ic.metrics import (
+    INGEST_DOCUMENTS,
+    INGEST_DURATION,
+    INGEST_ERRORS,
+    INGEST_ITEMS,
+    INGEST_RUNS,
+)
+
+logger = logging.getLogger(__name__)
 
 
 class FetchAdapter(Protocol):
-    async def fetch(self, endpoint: SourceEndpoint) -> list[FetchedDocument]: ...
+    def fetch(self, endpoint: SourceEndpoint) -> AsyncIterator[FetchedDocument]: ...
+
+
+class IngestError(BaseModel):
+    error_type: str
+    message: str
+    retryable: bool = False
+    upstream_id: str | None = None
+    retry_at: datetime | None = None
+    raw_document_id: str | None = None
+
+
+class ProvenanceLink(BaseModel):
+    item_id: str
+    item_content_hash: str
+    raw_document_id: str
 
 
 class IngestResult(BaseModel):
@@ -43,8 +72,13 @@ class IngestResult(BaseModel):
     quarantined_count: int = 0
     item_refs: list[str] = Field(default_factory=list)
     raw_document_refs: list[str] = Field(default_factory=list)
+    new_item_refs: list[str] = Field(default_factory=list)
+    new_revision_refs: list[str] = Field(default_factory=list)
+    duplicate_item_refs: list[str] = Field(default_factory=list)
+    quarantined_raw_document_refs: list[str] = Field(default_factory=list)
+    provenance: list[ProvenanceLink] = Field(default_factory=list)
     health: str
-    errors: list[str] = Field(default_factory=list)
+    errors: list[IngestError] = Field(default_factory=list)
 
 
 @dataclass(frozen=True)
@@ -84,27 +118,62 @@ class Ingest:
 
     async def ingest(self, endpoint_id: str) -> IngestResult:
         started_at = datetime.now(UTC)
+        started_monotonic = time.monotonic()
         with self._database.session() as session:
             endpoint_row = session.get(SourceEndpointRow, endpoint_id)
             if endpoint_row is None:
                 raise KeyError(f"unknown endpoint: {endpoint_id}")
             endpoint = endpoint_row.as_domain()
+            policy = session.scalar(
+                select(SourcePolicyRow).where(
+                    SourcePolicyRow.source_id == endpoint.source_id,
+                    SourcePolicyRow.version == endpoint.policy_version,
+                )
+            )
+
+        if endpoint_row.status != "active":
+            return self._observe(
+                self._failed_before_fetch(
+                    endpoint, started_at, "EndpointInactive", "SourceEndpoint is not active"
+                ),
+                started_monotonic,
+            )
+        if policy is None or "fetch" not in policy.permitted_actions:
+            return self._observe(
+                self._failed_before_fetch(
+                    endpoint,
+                    started_at,
+                    "SourcePolicyDenied",
+                    "SourcePolicy does not permit fetch",
+                ),
+                started_monotonic,
+            )
 
         adapter = self._adapters.get(endpoint.kind)
         if adapter is None:
             raise KeyError(f"no fetch adapter for endpoint kind: {endpoint.kind}")
+        documents: list[FetchedDocument] = []
+        fetch_failures: list[FetchFailure] = []
         try:
-            documents = await adapter.fetch(endpoint)
+            async for document in adapter.fetch(endpoint):
+                documents.append(document)
+        except PartialFetchError as exc:
+            fetch_failures.extend(exc.failures)
         except Exception as exc:
-            return IngestResult(
-                run_id=str(uuid.uuid4()),
-                endpoint_id=endpoint.id,
-                started_at=started_at,
-                completed_at=datetime.now(UTC),
-                checkpoint_before=endpoint.checkpoint,
-                checkpoint_after=endpoint.checkpoint,
-                health="failed",
-                errors=[f"{type(exc).__name__}: {exc}"],
+            fetch_failures.append(self._fetch_failure(exc))
+        if not documents and fetch_failures:
+            return self._observe(
+                IngestResult(
+                    run_id=str(uuid.uuid4()),
+                    endpoint_id=endpoint.id,
+                    started_at=started_at,
+                    completed_at=datetime.now(UTC),
+                    checkpoint_before=endpoint.checkpoint,
+                    checkpoint_after=endpoint.checkpoint,
+                    health="failed",
+                    errors=[self._ingest_error(failure) for failure in fetch_failures],
+                ),
+                started_monotonic,
             )
 
         result = IngestResult(
@@ -115,8 +184,10 @@ class Ingest:
             checkpoint_before=endpoint.checkpoint,
             checkpoint_after=endpoint.checkpoint,
             health="success",
+            errors=[self._ingest_error(failure) for failure in fetch_failures],
         )
         with self._database.session() as session, session.begin():
+            self._database.advisory_lock(session, f"ingest:{endpoint.id}")
             endpoint_row = session.get(SourceEndpointRow, endpoint.id)
             assert endpoint_row is not None
             for document in documents:
@@ -130,7 +201,14 @@ class Ingest:
                     raw.availability = "quarantined"
                     raw.parse_error = f"{type(exc).__name__}: {exc}"
                     result.quarantined_count += 1
-                    result.errors.append(raw.parse_error)
+                    result.quarantined_raw_document_refs.append(raw.id)
+                    result.errors.append(
+                        IngestError(
+                            error_type=type(exc).__name__,
+                            message=str(exc),
+                            raw_document_id=raw.id,
+                        )
+                    )
                     continue
                 for parsed in parsed_items:
                     item_id, outcome = self._save_item(
@@ -140,10 +218,20 @@ class Ingest:
                         result.item_refs.append(item_id)
                     if outcome == "new":
                         result.new_item_count += 1
+                        result.new_item_refs.append(item_id)
                     elif outcome == "revision":
                         result.new_revision_count += 1
+                        result.new_revision_refs.append(item_id)
                     else:
                         result.duplicate_count += 1
+                        result.duplicate_item_refs.append(item_id)
+                    result.provenance.append(
+                        ProvenanceLink(
+                            item_id=item_id,
+                            item_content_hash=parsed.content_hash,
+                            raw_document_id=raw.id,
+                        )
+                    )
 
             if documents and not result.errors:
                 observed_at = max(document.observed_at for document in documents)
@@ -151,7 +239,78 @@ class Ingest:
                 result.checkpoint_after = dict(endpoint_row.checkpoint)
             result.health = "degraded" if result.errors else "success"
             result.completed_at = datetime.now(UTC)
+        return self._observe(result, started_monotonic)
+
+    @staticmethod
+    def _observe(result: IngestResult, started_monotonic: float) -> IngestResult:
+        duration = time.monotonic() - started_monotonic
+        INGEST_RUNS.labels(endpoint=result.endpoint_id, health=result.health).inc()
+        INGEST_DOCUMENTS.labels(endpoint=result.endpoint_id).inc(len(result.raw_document_refs))
+        for outcome, count in (
+            ("new", result.new_item_count),
+            ("revision", result.new_revision_count),
+            ("duplicate", result.duplicate_count),
+            ("quarantined", result.quarantined_count),
+        ):
+            INGEST_ITEMS.labels(endpoint=result.endpoint_id, outcome=outcome).inc(count)
+        for error in result.errors:
+            INGEST_ERRORS.labels(endpoint=result.endpoint_id, error_type=error.error_type).inc()
+        INGEST_DURATION.labels(endpoint=result.endpoint_id).observe(duration)
+        logger.info(
+            "ingest_completed endpoint=%s health=%s documents=%d new=%d revisions=%d "
+            "duplicates=%d quarantined=%d errors=%d duration_seconds=%.3f",
+            result.endpoint_id,
+            result.health,
+            len(result.raw_document_refs),
+            result.new_item_count,
+            result.new_revision_count,
+            result.duplicate_count,
+            result.quarantined_count,
+            len(result.errors),
+            duration,
+        )
         return result
+
+    @staticmethod
+    def _failed_before_fetch(
+        endpoint: SourceEndpoint,
+        started_at: datetime,
+        error_type: str,
+        message: str,
+    ) -> IngestResult:
+        return IngestResult(
+            run_id=str(uuid.uuid4()),
+            endpoint_id=endpoint.id,
+            started_at=started_at,
+            completed_at=datetime.now(UTC),
+            checkpoint_before=endpoint.checkpoint,
+            checkpoint_after=endpoint.checkpoint,
+            health="failed",
+            errors=[IngestError(error_type=error_type, message=message)],
+        )
+
+    @staticmethod
+    def _ingest_error(failure: FetchFailure) -> IngestError:
+        return IngestError(
+            error_type=failure.error_type,
+            message=failure.message,
+            retryable=failure.retryable,
+            upstream_id=failure.upstream_id,
+            retry_at=failure.retry_at,
+        )
+
+    @staticmethod
+    def _fetch_failure(error: Exception) -> FetchFailure:
+        retryable = isinstance(error, httpx.TransportError)
+        retry_at = None
+        if isinstance(error, httpx.HTTPStatusError):
+            retryable = error.response.status_code == 429 or error.response.status_code >= 500
+        return FetchFailure(
+            error_type=type(error).__name__,
+            message=str(error),
+            retryable=retryable,
+            retry_at=retry_at,
+        )
 
     @staticmethod
     def _save_raw_document(
@@ -187,8 +346,7 @@ class Ingest:
         if endpoint.kind == EndpointKind.RSS:
             return Ingest._parse_rss(document.payload)
         if endpoint.kind == EndpointKind.HORIZON_HACKER_NEWS:
-            parsed = Ingest._parse_hacker_news(document.payload, endpoint)
-            return [parsed] if parsed is not None else []
+            return [Ingest._parse_hacker_news(document.payload)]
         raise ValueError(f"unsupported endpoint kind: {endpoint.kind}")
 
     @staticmethod
@@ -227,13 +385,10 @@ class Ingest:
         return parsed
 
     @staticmethod
-    def _parse_hacker_news(payload: bytes, endpoint: SourceEndpoint) -> ParsedItem | None:
+    def _parse_hacker_news(payload: bytes) -> ParsedItem:
         story = json.loads(payload)
         if not isinstance(story, dict) or not story.get("id") or not story.get("title"):
             raise ValueError("invalid Hacker News story")
-        min_score = int(endpoint.config.get("min_score", 0))
-        if int(story.get("score", 0)) < min_score:
-            return None
         story_id = str(story["id"])
         body = str(story.get("text") or "").strip() or None
         return ParsedItem(

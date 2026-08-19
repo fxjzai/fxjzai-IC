@@ -16,7 +16,7 @@ from sqlalchemy import (
     Text,
     UniqueConstraint,
     create_engine,
-    select,
+    text,
 )
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import DeclarativeBase, Mapped, Session, mapped_column, sessionmaker
@@ -52,6 +52,9 @@ class SourcePolicyRow(Base):
     source_id: Mapped[str] = mapped_column(ForeignKey("sources.id"), index=True)
     version: Mapped[str] = mapped_column(String(80))
     acquisition_basis: Mapped[str] = mapped_column(String(120), default="internal-research")
+    permitted_actions: Mapped[list[str]] = mapped_column(
+        JSON, default=lambda: ["fetch", "process", "team_share"]
+    )
     sharing_scope: Mapped[str] = mapped_column(String(80), default="team-internal")
     fulltext_retention_days: Mapped[int] = mapped_column(Integer, default=7)
     effective_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
@@ -100,6 +103,8 @@ class RawDocumentRow(Base):
     role: Mapped[str] = mapped_column(String(32), default="content")
     policy_version: Mapped[str] = mapped_column(String(80))
     parse_error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    deletion_reason: Mapped[str | None] = mapped_column(String(160), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
 
 
@@ -218,22 +223,55 @@ class FeedbackRow(Base):
     id: Mapped[str] = mapped_column(String(36), primary_key=True)
     idempotency_key: Mapped[str] = mapped_column(String(240), unique=True)
     actor_id: Mapped[str] = mapped_column(String(160))
-    digest_id: Mapped[str] = mapped_column(ForeignKey("digests.id"), index=True)
-    digest_entry_id: Mapped[str] = mapped_column(ForeignKey("digest_entries.id"), index=True)
+    target_kind: Mapped[str] = mapped_column(String(40))
+    target_id: Mapped[str] = mapped_column(String(120), index=True)
+    digest_id: Mapped[str | None] = mapped_column(
+        ForeignKey("digests.id"), index=True, nullable=True
+    )
+    digest_entry_id: Mapped[str | None] = mapped_column(
+        ForeignKey("digest_entries.id"), index=True, nullable=True
+    )
     item_id: Mapped[str] = mapped_column(ForeignKey("items.id"), index=True)
     item_content_hash: Mapped[str] = mapped_column(String(64))
-    score_id: Mapped[str] = mapped_column(ForeignKey("scores.id"))
-    policy_version: Mapped[str] = mapped_column(String(120))
+    score_id: Mapped[str | None] = mapped_column(ForeignKey("scores.id"), nullable=True)
+    policy_version: Mapped[str | None] = mapped_column(String(120), nullable=True)
     label: Mapped[str] = mapped_column(String(40))
     reason_code: Mapped[str | None] = mapped_column(String(120), nullable=True)
     comment: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
 
 
+class PolicyProposalRow(Base):
+    __tablename__ = "policy_proposals"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    base_policy_version: Mapped[str] = mapped_column(String(120))
+    candidate_policy_version: Mapped[str] = mapped_column(String(120))
+    proposed_by: Mapped[str] = mapped_column(String(160))
+    feedback_summary: Mapped[dict[str, int]] = mapped_column(JSON)
+    status: Mapped[str] = mapped_column(String(40), default="proposed")
+    replay_snapshot_id: Mapped[str | None] = mapped_column(
+        ForeignKey("candidate_snapshots.id"), nullable=True
+    )
+    replay_digest_id: Mapped[str | None] = mapped_column(ForeignKey("digests.id"), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+
+
+class PolicyActivationRow(Base):
+    __tablename__ = "policy_activations"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    proposal_id: Mapped[str] = mapped_column(ForeignKey("policy_proposals.id"), unique=True)
+    policy_version: Mapped[str] = mapped_column(String(120), index=True)
+    activated_by: Mapped[str] = mapped_column(String(160))
+    activated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+
+
 class Database:
     def __init__(self, url: str, *, engine: Engine | None = None) -> None:
         self.engine = engine or create_engine(url, pool_pre_ping=True)
         self._sessions = sessionmaker(self.engine, expire_on_commit=False)
+        self.is_test = self.engine.dialect.name == "sqlite"
 
     @classmethod
     def for_tests(cls) -> Database:
@@ -252,48 +290,55 @@ class Database:
     def create_schema(self) -> None:
         Base.metadata.create_all(self.engine)
 
+    def advisory_lock(self, session: Session, key: str) -> None:
+        """Serialize deterministic writes in PostgreSQL; SQLite tests are single-process."""
+        if self.engine.dialect.name == "postgresql":
+            session.execute(text("SELECT pg_advisory_xact_lock(hashtext(:key))"), {"key": key})
+
     def seed_defaults(self) -> None:
         with self.session() as session, session.begin():
-            if session.scalar(select(SourceRow.id).limit(1)) is not None:
-                return
-            session.add_all(
-                [
-                    SourceRow(
-                        id="openai",
-                        canonical_key="openai",
-                        name="OpenAI",
-                        languages=["en"],
-                    ),
-                    SourceRow(
-                        id="hacker-news",
-                        canonical_key="hacker-news",
-                        name="Hacker News",
-                        languages=["en"],
-                    ),
-                    SourcePolicyRow(
-                        id="openai:internal-v1",
-                        source_id="openai",
-                        version="internal-v1",
-                    ),
-                    SourcePolicyRow(
-                        id="hacker-news:internal-v1",
-                        source_id="hacker-news",
-                        version="internal-v1",
-                    ),
-                    SourceEndpointRow(
-                        id="openai-news-rss",
-                        source_id="openai",
-                        kind=EndpointKind.RSS.value,
-                        locator="https://openai.com/news/rss.xml",
-                        policy_version="internal-v1",
-                    ),
-                    SourceEndpointRow(
-                        id="horizon-hacker-news",
-                        source_id="hacker-news",
-                        kind=EndpointKind.HORIZON_HACKER_NEWS.value,
-                        locator="https://hacker-news.firebaseio.com/v0",
-                        policy_version="internal-v1",
-                        config={"fetch_top_stories": 15, "min_score": 50},
-                    ),
-                ]
-            )
+            self.advisory_lock(session, "seed-default-sources")
+            defaults: list[Base] = [
+                SourceRow(
+                    id="openai",
+                    canonical_key="openai",
+                    name="OpenAI",
+                    languages=["en"],
+                ),
+                SourceRow(
+                    id="hacker-news",
+                    canonical_key="hacker-news",
+                    name="Hacker News",
+                    languages=["en"],
+                ),
+                SourcePolicyRow(
+                    id="openai:internal-v1",
+                    source_id="openai",
+                    version="internal-v1",
+                    permitted_actions=["fetch", "process", "team_share"],
+                ),
+                SourcePolicyRow(
+                    id="hacker-news:internal-v1",
+                    source_id="hacker-news",
+                    version="internal-v1",
+                    permitted_actions=["fetch", "process", "team_share"],
+                ),
+                SourceEndpointRow(
+                    id="openai-news-rss",
+                    source_id="openai",
+                    kind=EndpointKind.RSS.value,
+                    locator="https://openai.com/news/rss.xml",
+                    policy_version="internal-v1",
+                ),
+                SourceEndpointRow(
+                    id="horizon-hacker-news",
+                    source_id="hacker-news",
+                    kind=EndpointKind.HORIZON_HACKER_NEWS.value,
+                    locator="https://hacker-news.firebaseio.com/v0",
+                    policy_version="internal-v1",
+                    config={"fetch_top_stories": 15},
+                ),
+            ]
+            for row in defaults:
+                if session.get(type(row), row.id) is None:  # type: ignore[attr-defined]
+                    session.add(row)

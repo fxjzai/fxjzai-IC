@@ -30,3 +30,18 @@ class FetchedDocument:
     source_url: str
     upstream_id: str | None = None
     role: str = "content"
+
+
+@dataclass(frozen=True)
+class FetchFailure:
+    error_type: str
+    message: str
+    retryable: bool
+    upstream_id: str | None = None
+    retry_at: datetime | None = None
+
+
+class PartialFetchError(Exception):
+    def __init__(self, failures: list[FetchFailure]) -> None:
+        self.failures = failures
+        super().__init__(f"{len(failures)} document fetches failed")

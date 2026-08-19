@@ -3,11 +3,14 @@ from __future__ import annotations
 import hashlib
 import json
 import uuid
-from datetime import datetime
+from datetime import UTC, datetime, time
 from typing import Literal
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from pydantic import BaseModel, Field, model_validator
+from sqlalchemy import func
 from sqlalchemy import select as sql_select
+from sqlalchemy.orm import Session
 
 from ic.db import (
     CandidateSnapshotRow,
@@ -37,8 +40,21 @@ class SelectionScope(BaseModel):
 
     @model_validator(mode="after")
     def period_is_forward(self) -> SelectionScope:
+        if self.period_start.tzinfo is None or self.period_end.tzinfo is None:
+            raise ValueError("selection periods must be timezone-aware")
         if self.period_end <= self.period_start:
             raise ValueError("period_end must be after period_start")
+        try:
+            timezone = ZoneInfo(self.timezone)
+        except ZoneInfoNotFoundError as exc:
+            raise ValueError(f"unknown timezone: {self.timezone}") from exc
+        if self.kind == "daily":
+            local_start = self.period_start.astimezone(timezone)
+            local_end = self.period_end.astimezone(timezone)
+            if local_start.time() != time.min or local_end.time() != time.min:
+                raise ValueError("daily period must start and end at local midnight")
+            if (local_end.date() - local_start.date()).days != 1:
+                raise ValueError("daily period must cover exactly one local calendar day")
         return self
 
 
@@ -79,12 +95,65 @@ class DigestView(BaseModel):
     entries: list[DigestEntryView]
 
 
+def digest_view(session: Session, digest: DigestRow, *, reused: bool) -> DigestView:
+    entries = list(
+        session.scalars(
+            sql_select(DigestEntryRow)
+            .where(DigestEntryRow.digest_id == digest.id)
+            .order_by(DigestEntryRow.rank)
+        )
+    )
+    return DigestView(
+        id=digest.id,
+        snapshot_id=digest.snapshot_id,
+        kind=digest.kind,
+        policy_version=digest.policy_version,
+        status=digest.status,
+        generated_at=digest.generated_at,
+        reused=reused,
+        entries=[
+            DigestEntryView(
+                id=entry.id,
+                item_id=entry.item_id,
+                item_content_hash=entry.item_content_hash,
+                score_id=entry.score_id,
+                score_status=(
+                    score.status
+                    if (score := session.get(ScoreRow, entry.score_id)) is not None
+                    else "missing"
+                ),
+                rank=entry.rank,
+                channel=entry.channel,
+                summary=entry.summary,
+                recommendation_reason=entry.recommendation_reason,
+            )
+            for entry in entries
+        ],
+    )
+
+
 class Select:
     def __init__(self, database: Database) -> None:
         self._database = database
 
     def create_candidate_snapshot(self, scope: SelectionScope) -> CandidateSnapshotView:
         with self._database.session() as session, session.begin():
+            scope_lock = json.dumps(scope.model_dump(mode="json"), sort_keys=True)
+            self._database.advisory_lock(session, f"candidate-snapshot:{scope_lock}")
+            resolved_scope = scope
+            if scope.kind == "stream":
+                watermark = session.scalar(
+                    sql_select(func.max(DigestRow.period_end)).where(
+                        DigestRow.kind == "stream",
+                        DigestRow.status.in_(["published", "degraded"]),
+                    )
+                )
+                if watermark is not None:
+                    if watermark.tzinfo is None:
+                        watermark = watermark.replace(tzinfo=UTC)
+                    if watermark >= scope.period_end:
+                        raise ValueError("stream watermark must be before period_end")
+                    resolved_scope = scope.model_copy(update={"period_start": watermark})
             statement = (
                 sql_select(ItemRow, ItemRevisionRow)
                 .join(
@@ -93,16 +162,16 @@ class Select:
                     & (ItemRevisionRow.content_hash == ItemRow.current_content_hash),
                 )
                 .where(
-                    ItemRevisionRow.discovered_at >= scope.period_start,
-                    ItemRevisionRow.discovered_at < scope.period_end,
+                    ItemRevisionRow.discovered_at >= resolved_scope.period_start,
+                    ItemRevisionRow.discovered_at < resolved_scope.period_end,
                 )
                 .order_by(ItemRevisionRow.discovered_at, ItemRow.id)
-                .limit(scope.limit)
+                .limit(resolved_scope.limit)
             )
-            if scope.source_ids:
-                statement = statement.where(ItemRow.source_id.in_(scope.source_ids))
-            if scope.languages:
-                statement = statement.where(ItemRevisionRow.language.in_(scope.languages))
+            if resolved_scope.source_ids:
+                statement = statement.where(ItemRow.source_id.in_(resolved_scope.source_ids))
+            if resolved_scope.languages:
+                statement = statement.where(ItemRevisionRow.language.in_(resolved_scope.languages))
             rows = list(session.execute(statement).all())
             refs = [
                 SnapshotItemRef(item_id=item.id, content_hash=revision.content_hash)
@@ -111,7 +180,7 @@ class Select:
             identity = json.dumps(
                 {
                     "query_version": QUERY_VERSION,
-                    "scope": scope.model_dump(mode="json"),
+                    "scope": resolved_scope.model_dump(mode="json"),
                     "refs": [ref.model_dump() for ref in refs],
                 },
                 sort_keys=True,
@@ -123,8 +192,8 @@ class Select:
                 now = utc_now()
                 existing = CandidateSnapshotRow(
                     id=snapshot_id,
-                    kind=scope.kind,
-                    scope=scope.model_dump(mode="json"),
+                    kind=resolved_scope.kind,
+                    scope=resolved_scope.model_dump(mode="json"),
                     query_version=QUERY_VERSION,
                     created_at=now,
                     closed_at=now,
@@ -153,9 +222,10 @@ class Select:
             f"{snapshot_id}:{policy_version}:{MODEL_ID}:{PROMPT_VERSION}".encode()
         ).hexdigest()
         with self._database.session() as session, session.begin():
+            self._database.advisory_lock(session, f"digest:{run_key}")
             existing = session.scalar(sql_select(DigestRow).where(DigestRow.run_key == run_key))
             if existing is not None:
-                return self._digest_view(session, existing, reused=True)
+                return digest_view(session, existing, reused=True)
 
             snapshot = session.get(CandidateSnapshotRow, snapshot_id)
             if snapshot is None:
@@ -197,9 +267,11 @@ class Select:
                 score_total = self._score(revision)
                 ranked.append((item_ref, revision, score_total))
             ranked.sort(key=lambda value: (-value[2], value[0].position))
+            digest_is_degraded = False
             for rank, (item_ref, revision, score_total) in enumerate(ranked, start=1):
                 availability = "full" if revision.body else "excerpt_only"
                 status = "active" if revision.body else "degraded"
+                digest_is_degraded = digest_is_degraded or status == "degraded"
                 score_id = str(
                     uuid.uuid5(
                         uuid.NAMESPACE_URL,
@@ -238,47 +310,12 @@ class Select:
                         recommendation_reason="Included by deterministic P0 tracer policy.",
                     )
                 )
+            if digest_is_degraded:
+                digest.status = "degraded"
             session.flush()
-            return self._digest_view(session, digest, reused=False)
+            return digest_view(session, digest, reused=False)
 
     @staticmethod
     def _score(revision: ItemRevisionRow) -> float:
         signal_length = len(revision.title) + len(revision.excerpt or "")
         return min(10.0, 5.0 + signal_length / 200.0)
-
-    @staticmethod
-    def _digest_view(session: object, digest: DigestRow, *, reused: bool) -> DigestView:
-        entries = list(
-            session.scalars(  # type: ignore[attr-defined]
-                sql_select(DigestEntryRow)
-                .where(DigestEntryRow.digest_id == digest.id)
-                .order_by(DigestEntryRow.rank)
-            )
-        )
-        return DigestView(
-            id=digest.id,
-            snapshot_id=digest.snapshot_id,
-            kind=digest.kind,
-            policy_version=digest.policy_version,
-            status=digest.status,
-            generated_at=digest.generated_at,
-            reused=reused,
-            entries=[
-                DigestEntryView(
-                    id=entry.id,
-                    item_id=entry.item_id,
-                    item_content_hash=entry.item_content_hash,
-                    score_id=entry.score_id,
-                    score_status=(
-                        score.status
-                        if (score := session.get(ScoreRow, entry.score_id)) is not None  # type: ignore[attr-defined]
-                        else "missing"
-                    ),
-                    rank=entry.rank,
-                    channel=entry.channel,
-                    summary=entry.summary,
-                    recommendation_reason=entry.recommendation_reason,
-                )
-                for entry in entries
-            ],
-        )

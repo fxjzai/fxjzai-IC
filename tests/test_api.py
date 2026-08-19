@@ -1,3 +1,4 @@
+import asyncio
 from datetime import UTC, datetime
 
 from fastapi.testclient import TestClient
@@ -5,35 +6,40 @@ from fastapi.testclient import TestClient
 from ic.api import create_app
 from ic.db import Database
 from ic.domain import EndpointKind, FetchedDocument, SourceEndpoint
+from ic.ingest import Ingest
 
 
 class Feed:
-    async def fetch(self, endpoint: SourceEndpoint) -> list[FetchedDocument]:
-        return [
-            FetchedDocument(
-                observed_at=datetime(2026, 8, 19, 10, tzinfo=UTC),
-                media_type="application/rss+xml",
-                payload=b"""<rss><channel><item><guid>one</guid><title>One</title>
+    async def fetch(self, endpoint: SourceEndpoint):  # type: ignore[no-untyped-def]
+        yield FetchedDocument(
+            observed_at=datetime(2026, 8, 19, 10, tzinfo=UTC),
+            media_type="application/rss+xml",
+            payload=b"""<rss><channel><item><guid>one</guid><title>One</title>
                 <link>https://example.test/one</link><description>Evidence.</description>
                 </item></channel></rss>""",
-                source_url=endpoint.locator,
-            )
-        ]
+            source_url=endpoint.locator,
+        )
 
 
 def test_http_tracer_flow_reaches_feedback() -> None:
     database = Database.for_tests()
-    app = create_app(database=database, adapters={EndpointKind.RSS: Feed()})
+    database.create_schema()
+    database.seed_defaults()
+    ingested = asyncio.run(
+        Ingest(database, {EndpointKind.RSS: Feed()}).ingest("openai-news-rss")
+    ).model_dump(mode="json")
+    app = create_app(database=database)
 
     with TestClient(app) as client:
         assert client.get("/health").json()["status"] == "healthy"
-        ingested = client.post("/v1/ingest/openai-news-rss").json()
+        assert "ic_ingest_runs_total" in client.get("/metrics").text
+        assert client.post("/v1/ingest/openai-news-rss").status_code == 404
         snapshot = client.post(
             "/v1/snapshots",
             json={
                 "kind": "daily",
-                "period_start": "2026-08-19T00:00:00Z",
-                "period_end": "2026-08-20T00:00:00Z",
+                "period_start": "2026-08-18T16:00:00Z",
+                "period_end": "2026-08-19T16:00:00Z",
                 "timezone": "Asia/Shanghai",
                 "limit": 20,
             },
@@ -47,8 +53,9 @@ def test_http_tracer_flow_reaches_feedback() -> None:
             "/v1/feedback",
             json={
                 "actor_id": "ray",
+                "target_kind": "digest_entry",
+                "target_id": entry["id"],
                 "digest_id": digest["id"],
-                "digest_entry_id": entry["id"],
                 "label": "useful",
                 "idempotency_key": "api:ray:one:useful",
             },

@@ -15,7 +15,7 @@ from ic.db import (
     ScoreRow,
     SourceRow,
 )
-from ic.select import DigestView, Select
+from ic.select import DigestView, digest_view
 
 
 class SourceView(BaseModel):
@@ -29,6 +29,8 @@ class ProvenanceView(BaseModel):
     observed_at: datetime
     payload_hash: str
     availability: str
+    deleted_at: datetime | None
+    deletion_reason: str | None
 
 
 class ScoreSummary(BaseModel):
@@ -105,6 +107,8 @@ class ReadIntelligence:
                     observed_at=raw.observed_at,
                     payload_hash=raw.payload_hash,
                     availability=raw.availability,
+                    deleted_at=raw.deleted_at,
+                    deletion_reason=raw.deletion_reason,
                 )
                 for _, raw in provenance_rows
             ]
@@ -141,4 +145,4 @@ class ReadIntelligence:
             digest = session.get(DigestRow, digest_id)
             if digest is None:
                 raise KeyError(f"unknown Digest: {digest_id}")
-            return Select._digest_view(session, digest, reused=True)
+            return digest_view(session, digest, reused=True)
