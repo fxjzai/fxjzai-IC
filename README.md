@@ -35,11 +35,11 @@ IC 希望把分散在全球官方博客、研究社区、技术媒体、GitHub�
 
 | 项目 | 当前角色判断 | 已确认优势 | 主要待验证项 |
 | --- | --- | --- | --- |
-| [AIHOT](https://aihot.virxact.com/) | 产品与品味标杆，不作为可 fork 底座 | 已呈现精选、全部动态、热点、日报、主题、模型榜和 Agent 接入；公开 RSS、API 与 OpenAPI | 字段与聚类细节、接入限制、商业使用条款 |
-| [Horizon](https://github.com/Thysrael/Horizon) | 主引擎首选候选 | MIT；Python；覆盖 RSS、HN、Reddit、Telegram、X、GitHub 等；具备去重、AI 评分/过滤、增强、双语简报、飞书等 Webhook 与 MCP | 持久化、跨源事件聚类、多阶段模型路由、反馈闭环和中文源扩展成本 |
-| [ai-news-aggregator](https://github.com/SuYxh/ai-news-aggregator) | 中文源与前端交互参考候选 | 国内平台与公众号源较丰富；React 信息流；结构化 JSON；GitHub Actions 定时更新 | 公众号来源与合规性、源配置可迁移性、许可证状态、作为上游 Feed 的稳定性 |
+| [AIHOT](https://aihot.virxact.com/) | 产品与数据契约标杆，不作为可 fork 底座 | 已验证精选、全部动态、Story 热点、日报、主题、模型榜；公开 REST v1、OpenAPI、RSS、MCP 与 Skill | 内部使用可参考或有限接入；未来对外商业化不得将其数据作为未授权上游 |
+| [Horizon](https://github.com/Thysrael/Horizon) | 采集与 AI 加工 worker 首选候选 | MIT；Python；10 类 source；统一 `ContentItem`；去重、AI 评分/过滤、增强、双语简报、Webhook 与 MCP | 无数据库和常驻调度器；source 注册并非插件式；需外接 IC 自有持久化、检索、协作与产品层 |
+| [ai-news-aggregator](https://github.com/SuYxh/ai-news-aggregator) | 中文源清单、静态 Feed 与前端交互参考 | 源码实际配置 53 个公众号；React 信息流；24h/7d 结构化 JSON；GitHub Actions 两小时更新 | 公众号全部依赖单一第三方 RSS 镜像；发布时间可能失真；仓库缺少正式 `LICENSE` 文件，不直接复制代码或依赖其数据 |
 
-当前工作假设是：**以 Horizon 的处理管线为主要候选，吸收中文源项目的源配置与产品经验，在 IC 内形成独立的数据模型和产品层。** 这不是最终选型结论。
+当前工作假设是：**IC 自己持有核心数据模型、持久化、调度、检索和产品层；将 Horizon 视为可改造或可替换的采集/AI 加工 worker，并仅把中文源项目作为源发现与交互参考。** 这不是最终选型结论。
 
 ## 目标架构草案
 
@@ -57,7 +57,7 @@ flowchart LR
 
 计划中的核心实体：
 
-- `Source`：信源身份、类型、语言、等级、授权与健康状态；
+- `Source`：信源身份、类型、语言、等级、采集链路、授权与逐源健康状态；
 - `Item`：一次采集得到的原始内容及规范化结果；
 - `Story`：同一事件或主题下的一组跨源 `Item`；
 - `Score`：带维度、模型、提示词与策略版本的评分记录；
@@ -104,9 +104,9 @@ flowchart LR
 - 微信公众号内容默认只保存检索、去重与摘要所需的最小数据，并保留原文链接；具体方案须经专项合规评估。
 - AI 生成的摘要和推荐理由不是事实来源，产品展示必须保留原始信源和不确定性。
 - 引入任何开源代码、源清单或数据前，分别核验其代码许可证、内容授权与商用条件。
+- AIHOT 现行条款允许同一组织内部研究、情报和决策使用；任何对外收费、客户交付、代理接口、公开镜像、批量再分发或外部 RAG / 模型产品都必须先取得书面授权。
 - 本仓库为团队内部私有项目；未经团队确认，不公开内部信源、凭据、评分策略或采集数据。
 
 ## 项目状态
 
 **阶段：Discovery / 选型调研。** 当前仓库先承载研究结论、架构决策、实验和后续实现；技术栈与上游底座尚未最终确定。
-
