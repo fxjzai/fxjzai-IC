@@ -84,7 +84,7 @@ IC 可以支撑这套流程，但产品承诺应从“97 篇无人值守自动�
 
 共同限制：上述多个 Substack 源虽公开 `/feed`，但 [Substack ToS](https://substack.com/tos) 对 crawl/scrape、大量存储、复制分发和商业利用有明确限制。RSS 可访问不等于取得正文再利用许可。
 
-IC 默认应只长期保存：来源身份、标题、作者、发布时间、canonical URL、源自带短摘要、抓取时间、内容指纹、内部评分和结构化分析。需要处理全文时采用来源级策略和保留期，不展示镜像、不绕过登录/付费墙、不向团队外再分发。
+IC 当前的内部研究姿态见 [ADR-0003](../decisions/0003-internal-research-data-use-posture.md)：逐源重型法律审查不阻塞 P0，但来源风险仍通过 SourcePolicy、7 天全文保留、低频采集、凭据隔离和删除能力控制。长期默认只保存来源身份、标题、作者、发布时间、canonical URL、短摘要、抓取时间、内容指纹、内部评分和结构化分析；不展示全文镜像、不绕过登录/付费墙、不向团队外再分发。
 
 ## 3. Karpathy LLM Wiki 核实
 
@@ -195,7 +195,7 @@ P0 使用率与反馈成立后，再评估 Claim 边界、证据 span、Knowledg
 ### P0.5
 
 - 在真实数据证明跨源聚类质量后，引入 Story；
-- 微信公众号 connector 只有在合规、稳定和多上游方案成立后进入生产范围。
+- 微信公众号 connector 只有在稳定性、多上游和来源风险方案成立后进入生产范围。
 
 ### P1
 
@@ -217,7 +217,7 @@ P0 不需要图数据库，也不应因 P1 假设预先建设知识 module。
 - Gmail 的读取、修改和设置 scopes 属于受限权限；首版只读专用标签，过滤器由用户确认后自行创建，避免申请不必要的修改权限。参考 [Gmail API scopes](https://developers.google.com/workspace/gmail/api/auth/scopes)。
 - 邮件进入模型前移除收件人、退订 token、追踪像素和个性化链接；HTML 默认不加载远程资源。
 - 原始邮件只向有订阅权的 workspace 成员开放，支持保留期、来源删除和访问审计。
-- 收到订阅邮件不等于获得全文再分发、团队共享或商业派生许可；每个 Source 分别记录并执行策略。
+- 收到订阅邮件不等于获得对外全文再分发或商业派生许可；当前团队内部研究按 [ADR-0003](../decisions/0003-internal-research-data-use-posture.md) 和每个 Source 的策略执行。
 - 商业化优先采用 BYO subscription/credential：客户自己订阅，IC 售卖连接器、筛选、知识工作流和私有部署，而不是集中采购后向多个客户分发正文。
 - 对外共享源库只共享 source metadata 和 connector recipe，不共享受限正文。
 

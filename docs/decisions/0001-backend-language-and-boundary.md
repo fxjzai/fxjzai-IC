@@ -6,7 +6,7 @@
 
 ## 背景
 
-IC 的 P0 需要处理 RSS、Newsletter/Email、网页、GitHub 和合规中文源，并完成增量采集、规范化、筛选、Digest 与反馈闭环。Story 聚类属于 P0.5；Claim 与长期知识编译属于 P1，不是本 ADR 的 MVP 前提。
+IC 的 P0 需要处理 RSS、Newsletter/Email、网页、GitHub 和可持续中文源，并完成增量采集、规范化、筛选、Digest 与反馈闭环。Story 聚类属于 P0.5；Claim 与长期知识编译属于 P1，不是本 ADR 的 MVP 前提。
 
 首轮调研确认 Horizon 是 Python 3.11 的批处理管线。它的部分 fetcher、解析工具和模型 provider 值得验证，但 Horizon 的 `ContentItem`、评分语义和整条“抓取 → 评分 → Markdown”管线不构成 IC 的领域 interface。
 
@@ -111,4 +111,3 @@ Horizon 是 `Ingest` 内部 fetch seam 的候选 adapter/implementation，不是
 6. 任务队列候选通过租约、重试、死信、幂等和观测性实验。
 
 如果 Python 无法在合理资源内满足目标，或 Horizon 的可复用价值在删除测试中不足，再重新评估语言或实现范围。
-

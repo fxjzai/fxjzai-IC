@@ -5,13 +5,13 @@
 IC 希望把分散在全球官方博客、Newsletter、研究社区、技术媒体、GitHub、RSS 与中文内容平台中的高价值信息，整理成**更少、更准、可解释、可追溯**的科技情报，并同时服务人类与 Agent。
 
 > [!IMPORTANT]
-> 项目处于 Discovery。这里是独立基础仓库，不是 Horizon、AIHOT 或其他项目的 fork；在接口、许可证、数据合规和 tracer bullet 验证完成前，不预设最终实现。
+> 项目处于 Discovery。这里是独立基础仓库，不是 Horizon、AIHOT 或其他项目的 fork；在 interface、许可证、来源风险和 tracer bullet 验证完成前，不预设最终实现。
 
 ## P0 产品目标
 
 第一阶段只验证一条足够小、足够深的闭环：
 
-- 维护一批经过审核的国内外 `Source` 及其可替换 `SourceEndpoint`；
+- 维护一批已登记并配置 `SourcePolicy` 的国内外 `Source` 及其可替换 `SourceEndpoint`；
 - 增量采集并保存不可变原始记录，将内容幂等归一化为 `Item`；
 - 低成本预筛、版本化评分和强模型精评；
 - 生成包含中文摘要、推荐理由、分数与回源链接的 `Digest`；
@@ -24,7 +24,7 @@ P0 首先回答：团队是否真的愿意每天阅读 Digest，它是否稳定�
 
 1. **质量优先于数量**：信源质量和筛选质量比信源规模更重要。
 2. **结论必须可追溯**：摘要、评分和推荐理由都必须回到 `Item` 与原始 provenance。
-3. **国内外来源同等重要**：中文源遵守与国际源相同的 interface、健康监控和 `SourcePolicy`，不通过临时特例绕过合规。
+3. **国内外来源同等重要**：中文源遵守与国际源相同的 interface、健康监控和 `SourcePolicy`，不因接入方式特殊而绕过保留、删除和凭据规则。
 4. **模型分层使用**：便宜模型处理高频预筛，强模型只处理少量高价值候选。
 5. **先复用，再改造**：在真实 seam 复用开源实现，不让上游模型污染 IC 的领域 interface。
 6. **一个只读能力面**：Web、HTTP、RSS、MCP 与 Skill 是传输 adapter，不分别实现搜索、排序或 Digest 逻辑。
@@ -40,7 +40,7 @@ P0 首先回答：团队是否真的愿意每天阅读 Digest，它是否稳定�
 
 Story 不再是 P0 生成 Digest 的前置条件。Newsletter/Wiki 调研验证的是长期机会；知识编译不会与日报产品同时进入 P0。
 
-规范字段、ID、去重、不变量与默认全文保留策略见 [P0 规范数据契约](./docs/specs/p0-domain-contract.md)。
+规范字段、ID、去重、不变量与默认全文保留策略见 [P0 规范数据契约](./docs/specs/p0-domain-contract.md)；项目领域词汇见 [IC 领域语言](./CONTEXT.md)。
 
 ## P0 信息流与 seam
 
@@ -83,8 +83,8 @@ Horizon 的 seam 已下移到 `Ingest` implementation 内部：`FetchAdapter.fet
 包含：
 
 - AI / 前沿科技动态；
-- 经过审核的 Source、Endpoint 与 SourcePolicy；
-- 至少一个国际来源和一个合规中文来源；
+- 已登记并配置 SourcePolicy 的 Source 与 Endpoint；
+- 至少一个国际来源和一个可持续中文来源；
 - 增量 Ingest、确定性去重和逐源运行状态；
 - 预筛、版本化 Score、中文摘要和推荐理由；
 - 持久化 CandidateSnapshot 与可回放策略评估；
@@ -100,10 +100,10 @@ Horizon 的 seam 已下移到 `Ingest` implementation 内部：`FetchAdapter.fet
 - Claim/Wiki/index-first 写作；
 - 企业权限、复杂计费与多租户；
 - 完整 PDF 报告管线；
-- 未通过合规与多上游验证的微信公众号生产 connector；
+- 未通过稳定性、多上游和来源风险验证的微信公众号生产 connector；
 - 复制或转售 AIHOT 数据。
 
-微信公众号是重要目标，但是否进入 P0 仍是显式开放问题。无论阶段如何，不使用单一个人 RSS 镜像作为生产依赖。
+微信公众号是重要目标，但是否进入 P0 仍是显式开放问题。无论阶段如何，不使用单一个人 RSS 镜像作为唯一生产依赖。
 
 ## Agent 读取面
 
@@ -118,14 +118,13 @@ P0 先定义同一只读语义，而不是为每种传输重写逻辑：
 
 ## 当前验证队列
 
-1. 评审并冻结 [P0 数据契约](./docs/specs/p0-domain-contract.md)；
-2. 按 [P0 第一发 tracer bullet](./docs/plans/p0-tracer-bullet.md) 确定两个来源和 health 暴露方式；
-3. 确定 Horizon 的引入方式：内部 fork、提取低层 fetcher，或按 interface 重写；
-4. 用 Horizon 与 Native RSS 两个 adapter 完成相同 Ingest 契约测试；
-5. 跑通第一发 `Ingest → Snapshot → Select → Digest → Feedback`；
-6. 再单独验证合规中文来源、Email 和 PostgreSQL-backed queue；
-7. 运行 500 / 1,000 / 2,000 条每日负载与成本实验；
-8. 团队连续使用 Digest 后，再决定 Story 和 Compile 是否立项。
+1. 将 [P0 数据契约](./docs/specs/p0-domain-contract.md) 冻结为本轮验证基线，状态仍保持 `Draft`；
+2. 按 [P0 第一发 tracer bullet](./docs/plans/p0-tracer-bullet.md)，用 OpenAI 官方 RSS 与 Horizon Hacker News 跑通 `Ingest → Snapshot → Select → Digest → Feedback`；
+3. endpoint health 第一发只进入 `IngestResult`、日志和指标，不新增 ops interface；
+4. 根据 tracer bullet 结果确定 Horizon 的引入方式：内部 fork、提取低层 fetcher，或按 interface 重写；
+5. 再单独验证可持续中文来源、Email 和 PostgreSQL-backed queue；
+6. 运行 500 / 1,000 / 2,000 条每日负载与成本实验；
+7. 团队连续使用 Digest 后，再决定 Story 和 Compile 是否立项。
 
 研究证据与历史假设见 [`docs/research`](./docs/research/README.md)。
 
@@ -133,14 +132,17 @@ P0 先定义同一只读语义，而不是为每种传输重写逻辑：
 
 - [ADR-0001：后端主语言与运行形态](./docs/decisions/0001-backend-language-and-boundary.md) — `Proposed`
 - [ADR-0002：P0 范围与深模块 interface](./docs/decisions/0002-p0-scope-and-module-interfaces.md) — `Proposed`
+- [ADR-0003：内部研究的数据使用姿态](./docs/decisions/0003-internal-research-data-use-posture.md) — `Accepted`
 - [P0 规范数据契约](./docs/specs/p0-domain-contract.md) — `Draft`
-- [P0 第一发 tracer bullet](./docs/plans/p0-tracer-bullet.md) — `Draft / 等待选择`
+- [P0 第一发 tracer bullet](./docs/plans/p0-tracer-bullet.md) — `Ready`
 
-## 合规与使用约束
+## 内部使用与来源风险
 
-- 优先官方 API、RSS 或明确授权入口，并遵守 ToS、robots、访问频率、版权和转载规范。
-- 授权未审核来源默认只长期保留元数据、短摘录、hash 和内部派生记录；原始/规范全文最多保留 7 天。
-- 微信公众号内容默认不做全文镜像；具体 connector 必须通过专项合规、稳定性与多上游评估。
+- 当前只服务反向加载团队的内部研究。P0 不把逐源重型法律审查设为 tracer bullet 前置条件；`SourcePolicy` 是可执行的采集、保留、展示和删除配置，不是“已经获得授权”的证明。
+- 内部可以共享标题、摘要、短摘录、回源链接和派生分析。原始/规范全文只用于受控处理与短期复核，默认最多保留 7 天，不做常驻全文镜像。
+- 优先官方 API、RSS；公开页面确需抓取时保持低频、有界并发，不绕过登录、付费墙、CAPTCHA 或其他访问控制。
+- 凭据只保存引用并与内容隔离；来源停用或收到删除请求时，系统必须能删除 payload 并保留最小 tombstone。
+- “项目私有、外部无人知晓”不是风险控制。任何公开发布、收费、客户交付、镜像、批量再分发或外部 RAG/模型用途，都必须先经过新的来源与用途复核。
 - AI 生成内容不是事实来源，产品展示必须保留原始信源、版本和不确定性。
 - AIHOT 可用于同一组织内部情报；任何对外收费、客户交付、代理、镜像、批量再分发或外部 RAG/模型产品必须先获书面授权。
 - 本仓库为团队内部私有项目；未经确认，不公开内部信源、凭据、评分策略或采集数据。

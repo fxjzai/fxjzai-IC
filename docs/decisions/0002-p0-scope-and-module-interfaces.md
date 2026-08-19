@@ -9,7 +9,7 @@
 P0 只承诺一条可验证的情报闭环：
 
 ```text
-已审核 Source
+已登记 Source
   → SourceEndpoint
   → Ingest
   → 不可变 RawDocument + 规范 Item
@@ -54,7 +54,7 @@ async ingest(endpoint: SourceEndpointRef) -> IngestResult
 
 `Issue` 只是 Newsletter、期刊等天然存在“期次”时的可选父级。普通 RSS 文章不得为了统一结构而伪造 Issue。
 
-`IngestResult` 至少说明本次 run 的 checkpoint 前后值、新 Item、新 revision、重复、隔离区、provenance、类型化错误与 endpoint health observation。调用方不得通过查询数据库猜测运行结果。
+`IngestResult` 至少说明本次 run 的 checkpoint 前后值、新 Item、新 revision、重复、隔离区、provenance、类型化错误与 endpoint health observation。第一发只把 health 写入 `IngestResult`、日志和指标，不新增 ops 读取 interface；调用方不得通过查询数据库猜测运行结果。
 
 ### 内部 Fetch seam
 
@@ -73,7 +73,7 @@ Fetch adapter 只负责协议访问、鉴权、限流、原始响应 provenance 
 
 Horizon 是 `HorizonFetchAdapter` 的候选实现。若某个 Horizon fetcher 只输出丢失原始响应和增量 provenance 的扁平 `ContentItem`，它不能被伪装成 `RawDocument`；应提取更低层能力、编写原生 adapter，或放弃复用。
 
-第一发 tracer bullet 固定使用 `NativeRssFetchAdapter` 作为非 Horizon 生产 adapter；Email 与中文来源另行验证。只有它与 Horizon adapter 均通过同一 Ingest 契约测试后，才可宣称该 seam 真实且 Horizon 可替换。只有一个生产 adapter 时，不建立复杂注册框架。
+第一发 tracer bullet 固定使用 `NativeRssFetchAdapter` 读取 OpenAI 官方 RSS，并用 Horizon fetcher 读取 Hacker News；Email 与中文来源另行验证。只有两个 adapter 均通过同一 Ingest 契约测试后，才可宣称该 seam 真实且 Horizon 可替换。只有一个生产 adapter 时，不建立复杂注册框架。
 
 ### 错误与幂等
 
@@ -208,7 +208,5 @@ module 测试应从 `ingest`、`select`、统一读取 interface 和 `record_fee
 
 - PostgreSQL queue 的具体实现库；
 - Horizon 采用内部 fork、vendored subset，还是仅参考重写 fetcher；
-- 微信公众号 connector 是否进入 P0，还是在合规与多上游方案成立后进入 P0.5；
-- 第一发 tracer bullet 的具体 Native RSS 与 Horizon 来源组合；
-- endpoint health 第一发只进入日志/指标，还是增加最小 ops 读取 interface；
+- 微信公众号 connector 是否进入 P0，还是在稳定性、多上游和来源风险方案成立后进入 P0.5；
 - 只读能力面的第二个真实传输 adapter 是 Web 还是 MCP。

@@ -1,6 +1,6 @@
 # P0 第一发 tracer bullet
 
-- 状态：Draft / 等待两个选择
+- 状态：Ready（以当前 Draft 契约为验证基线）
 - 日期：2026-08-19
 - 目的：用最少变量验证 Ingest seam 与 `Ingest → Snapshot → Select → Digest → Feedback` 闭环
 
@@ -16,47 +16,53 @@
 ## 这次不验证什么
 
 - 不接 Email、Gmail OAuth 或 MIME；
-- 不接微信公众号或未完成合规审核的中文源；
+- 不接微信公众号或尚未完成稳定性、多上游和来源风险验证的中文源；
 - 不选择生产任务队列，先由 CLI/测试 harness 直接触发 worker 入口；
 - 不做 Story、Claim、Wiki、权限和 UI；
 - 不做 500–2,000 条/日压测。
 
 第一发通过后，再分别验证中文来源、Email、任务队列和目标负载，避免失败时无法定位是哪一层。
 
-## 选择 1：具体来源组合
+## 已选方案
 
-### A. 官方新闻 + 社区信号（推荐）
+- 来源组合：**A — OpenAI 官方 RSS + Horizon Hacker News**；
+- endpoint health：**A — 只进入 IngestResult、日志和指标**；
+- Email、中文来源、运维读取 interface 和 UI 不进入第一发。
+
+## 来源组合决策记录
+
+### A. 官方新闻 + 社区信号（已选择）
 
 - Native RSS：[OpenAI News RSS](https://openai.com/news/rss.xml)，2026-08-19 实测 HTTP 200；
 - Horizon：Hacker News fetcher。
 
 优点：无登录、无邮箱权限、来源类型差异明显；可以直接检验 Horizon fetcher 能否保留 RawDocument/provenance，而不是包装 `ContentItem`。缺点：两个来源主题密度和内容形态不同，不适合比较召回率，只适合验证 interface。
 
-### B. 产品发布 + 开源发布
+### B. 产品发布 + 开源发布（未选择，保留记录）
 
 - Native RSS：[Product Hunt Atom](https://www.producthunt.com/feed)，2026-08-19 实测 HTTP 200；
 - Horizon：GitHub Releases fetcher。
 
 优点：更贴近产品和开源发布情报，后续 Digest 更直观。缺点：GitHub 限流/Token 和 Product Hunt 使用约束增加变量；必须只按 SourcePolicy 保存允许字段。
 
-### C. 中文优先
+### C. 中文优先（未选择，保留记录）
 
-- Native adapter：一个完成 ToS、版权、保留期与稳定性审核的中文官方源；
+- Native adapter：一个已配置 SourcePolicy，并完成稳定性、多上游和来源风险验证的中文官方源；
 - Horizon：Hacker News fetcher。
 
-优点：更早验证产品核心诉求。缺点：当前没有已冻结的中文候选，会把来源合规审计与 adapter seam 同时放进第一发，不推荐作为故障定位起点。
+优点：更早验证产品核心诉求。缺点：当前没有已冻结的中文候选，会把中文接入稳定性、多上游和来源风险与 adapter seam 同时放进第一发，不推荐作为故障定位起点。
 
-## 选择 2：第一发如何暴露 endpoint health
+## Endpoint health 决策记录
 
-### A. 只进入 IngestResult + 日志/指标（推荐）
+### A. 只进入 IngestResult + 日志/指标（已选择）
 
 第一发记录成功率、最后观察时间、失败类型、重试时间和延迟，不新增运维读取 interface。验证 health 语义稳定后再决定是否产品化。
 
-### B. 增加最小内部 ops 读取
+### B. 增加最小内部 ops 读取（未选择，保留记录）
 
 增加只读 `get_endpoint_health(endpoint_ref)`，返回最后成功、当前状态、连续失败数、错误类型和建议重试时间。适合调试，但会扩大第一发 interface。
 
-### C. 直接做运维页面
+### C. 直接做运维页面（未选择，保留记录）
 
 同时建设来源列表和健康页面。可见性最好，但会引入 UI、授权和查询设计，不推荐用于第一发。
 
@@ -118,4 +124,3 @@
 - 7 天删除策略导致系统无法诚实表达 degraded。
 
 出现停止条件时先修改 Draft 契约或缩小 Horizon 复用范围，不继续 scaffold 上层功能。
-

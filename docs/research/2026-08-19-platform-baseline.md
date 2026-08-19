@@ -114,7 +114,7 @@ IC 必须补齐：
 ```mermaid
 flowchart LR
     H["Horizon fetch adapter"] --> I["Ingest interface"]
-    N["非 Horizon adapter\nRSS / Email / 合规中文源"] --> I
+    N["非 Horizon adapter\nRSS / Email / 可持续中文源"] --> I
     I --> D[("IC RawDocument + Item")]
     D --> S["Select"]
     S --> G["Digest + Feedback"]

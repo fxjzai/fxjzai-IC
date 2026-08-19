@@ -34,7 +34,7 @@
 | `Digest` | `id`、`kind`、`snapshot_id`、`period_start`、`period_end`、`timezone`、`policy_version`、`status`、`entries[]`、`generated_at`、`published_at?` | 精选流、日报和 Top 3 的统一产物；entry 至少绑定 `item_id + item_content_hash`、`score_id?`、rank、摘要与推荐理由 |
 | `Feedback` | `id`、`actor_id`、`target_type`、`target_id`、`label`、`reason_code?`、`comment?`、`created_at`、`applied_policy_version?` | 人对 Item 或 Digest entry 的追加式校准事件；label 至少支持 `useful/useless/misclassified` |
 
-`SourceEndpoint.kind` P0 至少允许 `rss/email/web/api`；`wechat` 只有存在通过合规评估的真实 adapter 时才启用，不能因枚举存在就宣称支持。
+`SourceEndpoint.kind` P0 至少允许 `rss/email/web/api`；`wechat` 只有存在通过稳定性、多上游和来源风险验证的真实 adapter 时才启用，不能因枚举存在就宣称支持。
 
 ## Module 出入参
 
@@ -93,7 +93,7 @@
 IC 拥有全部内部 ID、canonicalization、去重和幂等规则。Fetch adapter 只报告外部标识、原始字节和传输元数据，不得决定 Item ID、合并结果或最终 Score。
 
 - 内部 `id` 使用无业务含义、不可变的全局 ID；URL、标题和内容 hash 不直接充当主键；
-- Source 由人工审核的 `canonical_key` 唯一标识；
+- Source 由人工确认的 `canonical_key` 唯一标识；
 - SourceEndpoint 按规范化 `kind + locator` 唯一；
 - RawDocument 优先按 `endpoint_id + upstream_id/version` 幂等，无稳定上游 ID 时使用 `endpoint_id + payload_hash`；
 - Issue 在同一 Source 内按稳定 edition ID 唯一，后备键为 canonical URL；
@@ -116,15 +116,16 @@ Source + SourcePolicy
 
 每次处理必须使用当时生效的 SourcePolicy 并保留版本。Source 停用后历史 provenance 不得消失；若政策要求删除，则保留最小审计 tombstone，并按政策隐藏、删除或降级派生产物。
 
-## 默认全文策略
+## 内部使用与默认全文策略
 
-来源未完成授权审核时采用最小权限默认值：
+P0 不把逐源重型法律审查作为 tracer bullet 的前置条件；来源未设置明确 SourcePolicy 时采用以下内部研究默认值：
 
-- 原始与规范化全文只用于内部瞬时处理，最多保留 **7 天**；
-- 团队全文展示、外部共享、镜像、再分发和训练默认关闭；
-- 长期仅保留来源身份、标题、作者、时间、canonical URL、短摘录、内容 hash、采集时间、内部 Score/Digest/Feedback 和 provenance；
-- 付费墙、个人订阅邮件和微信公众号不得因“技术上可获取”放宽策略；
-- 只有经审核的 SourcePolicy 新版本可以延长保留或扩大使用范围，且不能追溯性地为过去未获授权的处理补权。
+- 标题、作者、时间、canonical URL、短摘录、中文摘要、推荐理由和其他派生分析可以在团队内部共享；
+- 原始与规范化全文只用于内部采集处理、故障排查和短期复核，最多保留 **7 天**，`ItemView` 默认不返回全文；
+- 常驻全文展示、公开分享、镜像、团队外再分发和训练默认关闭；
+- 不绕过登录、付费墙、CAPTCHA 或其他访问控制，订阅凭据不得随 RawDocument 保存；
+- SourcePolicy 可以进一步缩短保留期或隐藏派生产物；延长全文保留或扩大共享范围必须由项目负责人显式激活新版本；
+- Source 停用或收到删除请求时必须能删除 payload，并保留说明来源、hash、时间和删除原因的最小 tombstone。
 
 超过全文保留期后的策略回放，只能使用仍合法保留的 excerpt、元数据、hash 和历史派生记录。此类新 Score 与 Digest 必须标记 `degraded` 和缺失输入原因，禁止伪装为基于完整正文的精评。
 
@@ -138,4 +139,4 @@ Source + SourcePolicy
 - 过期全文回放只能生成明确标记 degraded 的结果；
 - 发布后的 Digest、历史 Score 和 Feedback 不被覆盖；
 - RawDocument payload 到期删除后仍可解释其来源、处理时间和删除原因；
-- 中文与国际来源遵守相同契约，不通过特例绕开 SourcePolicy。
+- 中文与国际来源遵守相同契约，不通过特例绕开 SourcePolicy、保留期或删除能力。
