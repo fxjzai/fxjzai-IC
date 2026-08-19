@@ -2,117 +2,145 @@
 
 > 反向加载团队的全球科技情报中心（Tech Intelligence Center）基础仓库。
 
-IC 希望把分散在全球官方博客、Newsletter、研究社区、技术媒体、GitHub、RSS 与中文内容平台中的高价值信息，整理成**更少、更准、可解释、可追溯**的科技情报，并同时服务人类阅读和 Agent 消费。
+IC 希望把分散在全球官方博客、Newsletter、研究社区、技术媒体、GitHub、RSS 与中文内容平台中的高价值信息，整理成**更少、更准、可解释、可追溯**的科技情报，并同时服务人类与 Agent。
 
 > [!IMPORTANT]
-> 项目目前处于调研与技术选型阶段。这里是独立的基础仓库，不是 Horizon、AIHOT 或其他项目的 fork；在完成架构、许可证与数据合规评估前，不预设最终实现。
+> 项目处于 Discovery。这里是独立基础仓库，不是 Horizon、AIHOT 或其他项目的 fork；在接口、许可证、数据合规和 tracer bullet 验证完成前，不预设最终实现。
 
-## 产品目标
+## P0 产品目标
 
-第一阶段聚焦 AI / 前沿科技动态，跑通从采集到分发的最小闭环：
+第一阶段只验证一条足够小、足够深的闭环：
 
-- 聚合可信的国内外信息源，而不是无差别抓取全网；
-- 通过低成本预筛和强模型精评降低噪声；
-- 为每条精选提供中文摘要、推荐理由、评分和原始信源；
-- 将同一事件的跨源报道合并为可追踪的 Story；
-- 产出精选流、日报，以及 RSS / API / Agent 可消费的数据；
-- 通过人工反馈持续校准信源等级和评分策略。
+- 维护一批经过审核的国内外 `Source` 及其可替换 `SourceEndpoint`；
+- 增量采集并保存不可变原始记录，将内容幂等归一化为 `Item`；
+- 低成本预筛、版本化评分和强模型精评；
+- 生成包含中文摘要、推荐理由、分数与回源链接的 `Digest`；
+- 以同一只读 interface 支持 Web、HTTP、RSS 和后续 Agent adapter；
+- 接受“有用 / 无用 / 误判”反馈，进入可审计的人工校准流程。
 
-长期目标是演进为支持团队协作、私有信源与私有部署的产品，但当前优先解决“团队每天真正愿意读什么”。
+P0 首先回答：团队是否真的愿意每天阅读 Digest，它是否稳定减少噪声，并且每个结论能否回到原始来源。
 
 ## 产品原则
 
 1. **质量优先于数量**：信源质量和筛选质量比信源规模更重要。
-2. **结论必须可追溯**：摘要、评分和推荐理由都要能回到原文与证据。
-3. **国内外信息同等重要**：微信公众号等中文源是一等公民，但采集方式必须合规、可维护。
-4. **模型分层使用**：便宜模型处理高频粗筛，强模型用于少量高价值内容的精评与生成。
-5. **先复用，再改造**：优先组合成熟开源能力，不从零重写聚合器。
-6. **面向人，也面向 Agent**：Web 与日报之外，数据模型要原生支持 API、RSS、Skill 和 MCP。
+2. **结论必须可追溯**：摘要、评分和推荐理由都必须回到 `Item` 与原始 provenance。
+3. **国内外来源同等重要**：中文源遵守与国际源相同的 interface、健康监控和 `SourcePolicy`，不通过临时特例绕过合规。
+4. **模型分层使用**：便宜模型处理高频预筛，强模型只处理少量高价值候选。
+5. **先复用，再改造**：在真实 seam 复用开源实现，不让上游模型污染 IC 的领域 interface。
+6. **一个只读能力面**：Web、HTTP、RSS、MCP 与 Skill 是传输 adapter，不分别实现搜索、排序或 Digest 逻辑。
 
-## 初步选型判断
+## 分期
 
-以下结论基于 2026-08-19 的公开仓库与页面观察，仍需通过代码级调研和原型验证。
+| 阶段 | 产品闭环 | 规范实体 |
+| --- | --- | --- |
+| P0 | 可信采集 → 可解释 Digest → Feedback | `Source`、`SourceEndpoint`、`SourcePolicy`、`RawDocument`、`Item`、可选 `Issue`、`Score`、`Digest`、`Feedback` |
+| P0.5 | 跨源事件聚类 | `Story` |
+| P1 | 经人工接受的 Claim 编译为长期知识 | `Claim`、`KnowledgeCard`、`KnowledgeIndex` |
+| P2 | 知识本体和多租户商业能力 | `Concept`、`OpenQuestion`、多租户 `WorkspaceSubscription` |
 
-| 项目 | 当前角色判断 | 已确认优势 | 主要待验证项 |
-| --- | --- | --- | --- |
-| [AIHOT](https://aihot.virxact.com/) | 产品与数据契约标杆，不作为可 fork 底座 | 已验证精选、全部动态、Story 热点、日报、主题、模型榜；公开 REST v1、OpenAPI、RSS、MCP 与 Skill | 内部使用可参考或有限接入；未来对外商业化不得将其数据作为未授权上游 |
-| [Horizon](https://github.com/Thysrael/Horizon) | 采集与 AI 加工 worker 首选候选 | MIT；Python；10 类 source；统一 `ContentItem`；去重、AI 评分/过滤、增强、双语简报、Webhook 与 MCP | 无数据库和常驻调度器；source 注册并非插件式；需外接 IC 自有持久化、检索、协作与产品层 |
-| [ai-news-aggregator](https://github.com/SuYxh/ai-news-aggregator) | 中文源清单、静态 Feed 与前端交互参考 | 源码实际配置 53 个公众号；React 信息流；24h/7d 结构化 JSON；GitHub Actions 两小时更新 | 公众号全部依赖单一第三方 RSS 镜像；发布时间可能失真；仓库缺少正式 `LICENSE` 文件，不直接复制代码或依赖其数据 |
+Story 不再是 P0 生成 Digest 的前置条件。Newsletter/Wiki 调研验证的是长期机会；知识编译不会与日报产品同时进入 P0。
 
-当前工作假设是：**IC 自己持有核心数据模型、持久化、调度、检索和产品层；将 Horizon 视为可改造或可替换的采集/AI 加工 worker，并仅把中文源项目作为源发现与交互参考。** 这不是最终选型结论。
+规范字段、ID、去重、不变量与默认全文保留策略见 [P0 规范数据契约](./docs/specs/p0-domain-contract.md)。
 
-## 目标架构草案
+## P0 信息流与 seam
 
 ```mermaid
 flowchart LR
-    S["信源目录\n国际 / 中文 / 私有"] --> C["采集层\nFetchers / RSS / API"]
-    C --> P["处理层\n清洗 → 去重 → 预筛 → 精评"]
-    P --> E["情报增强\n聚类 / 摘要 / 推荐理由 / 标签"]
-    E --> D[("统一数据层\nSource / Item / Story / Score / Digest")]
-    D --> W["产品层\n精选 / 热点 / 日报 / 搜索"]
-    D --> O["分发层\n飞书 / Email / RSS / API / MCP"]
-    W --> F["反馈闭环\n有用 / 无用 / 误判"]
-    F --> P
+    S["Source + SourcePolicy"] --> EP["SourceEndpoint\nRSS / Email / Web / API"]
+    EP --> I["Ingest module\nfetch / parse / normalize / deduplicate"]
+    I --> D[("RawDocument + Item")]
+    D --> SEL["Select module\nprescreen / score / summarize"]
+    SEL --> DG["Digest\n精选 / 日报 / Top 3"]
+    DG --> R["统一只读 interface"]
+    R --> O["Web / HTTP / RSS / Agent adapters"]
+    O --> F["Feedback"]
+    F --> C["人工校准与策略回放"]
+    C --> SEL
 ```
 
-计划中的核心实体：
+P0 只有两个核心写入 module：
 
-- `Source`：信源身份、类型、语言、等级、采集链路、授权与逐源健康状态；
-- `Item`：一次采集得到的原始内容及规范化结果；
-- `Story`：同一事件或主题下的一组跨源 `Item`；
-- `Score`：带维度、模型、提示词与策略版本的评分记录；
-- `Digest`：精选、日报或周报等可发布产物。
+- `Ingest.ingest(endpoint) → IngestResult`：隐藏抓取、原始保存、解析、规范化、确定性去重、provenance、检查点与失败恢复；
+- `Select.select(scope, policy) → Digest`：隐藏候选快照、预筛、评分、摘要、推荐理由与发布幂等。
 
-## MVP 边界
+`worker`、队列和时钟是运行拓扑，不是领域 module。P1 的 `Compile` 只有在团队形成稳定的 Digest 阅读、Claim 接受和 Wiki 审核行为后才建立。
 
-第一阶段只做：
+## 候选项目判断
+
+以下结论基于 2026-08-19 的公开仓库、源码和页面观察。
+
+| 项目 | 当前角色 | 可复用或借鉴 | 限制 |
+| --- | --- | --- | --- |
+| [AIHOT](https://aihot.virxact.com/) | 产品与数据契约标杆 | Item/Story/Digest 体验、REST/RSS/MCP/Skill 同源只读契约 | 不作为可 fork 底座；对外商业数据使用需要书面授权 |
+| [Horizon](https://github.com/Thysrael/Horizon) | Ingest 内部 adapter/implementation 的优先验证候选 | 部分 fetcher、解析工具、模型 provider routing | `ContentItem`、评分语义和整条 pipeline 不构成 IC interface；无数据库、常驻调度、反馈和产品层 |
+| [ai-news-aggregator](https://github.com/SuYxh/ai-news-aggregator) | 中文源发现与 UI/静态 Feed 参考 | 53 个公众号候选、快照思路、轻量信息流 | 公众号全部依赖单一第三方镜像、时间可能失真、无正式 LICENSE，不直接复制代码或依赖数据 |
+
+Horizon 的 seam 已下移到 `Ingest` implementation 内部：`FetchAdapter.fetch(endpoint) → RawDocument`。只有 Horizon 与至少一个非 Horizon 的生产 adapter 通过同一 Ingest 契约测试后，才能宣称 Horizon 可替换。
+
+## P0 候选范围
+
+包含：
 
 - AI / 前沿科技动态；
-- 一批经过人工审核的国内外信源；
-- 增量采集、去重、预筛、多维评分；
-- 中文摘要与推荐理由；
-- 精选流和日报；
-- 飞书或邮件中的一种推送；
-- 基础 RSS / API；
-- 最小反馈字段与运行可观测性。
+- 经过审核的 Source、Endpoint 与 SourcePolicy；
+- 至少一个国际来源和一个合规中文来源；
+- 增量 Ingest、确定性去重和逐源运行状态；
+- 预筛、版本化 Score、中文摘要和推荐理由；
+- Digest（精选、日报或 Top 3 的统一产物）；
+- 一种主动推送；
+- HTTP/RSS 读取与最小 Feedback；
+- 模型、策略、成本、失败和 provenance 可观测性。
 
-第一阶段不做：全网爬虫、通用新闻门户、企业级权限、复杂计费、完整报告 PDF 管线，也不复制或转售 AIHOT 数据。
+不包含：
 
-## 当前研究队列
+- 全网无差别爬虫、通用新闻门户；
+- Story 产品化和自动事件合并；
+- Claim/Wiki/index-first 写作；
+- 企业权限、复杂计费与多租户；
+- 完整 PDF 报告管线；
+- 未通过合规与多上游验证的微信公众号生产 connector；
+- 复制或转售 AIHOT 数据。
 
-1. 拆解 AIHOT 的信息架构、字段、公开接口与使用条款；
-2. 代码级审查 Horizon 的模块、配置、数据流、存储、调度和扩展点；
-3. 审查 `ai-news-aggregator` 的公众号链路、数据结构、许可证与可迁移性；
-4. 横向比较其他活跃候选，形成底座选型记录；
-5. 定义 `Source / Item / Story / Score / Digest` 的最小数据契约；
-6. 用真实中英文信源做一条端到端 tracer bullet；
-7. 再据验证结果确定 fork、组合或独立适配层方案。
+微信公众号是重要目标，但是否进入 P0 仍是显式开放问题。无论阶段如何，不使用单一个人 RSS 镜像作为生产依赖。
 
-完整证据、阶段性结论与更新记录见 [`docs/research`](./docs/research/README.md)。
+## Agent 读取面
+
+P0 先定义同一只读语义，而不是为每种传输重写逻辑：
+
+- `search`
+- `get_item`
+- `list_digests`
+- `get_digest`
+
+`get_story` 只在 Story 进入 P0.5 后增加。MCP、Skill 和 HTTP 都只是这组能力的 adapter；读取路径不得同步调用 LLM。
+
+## 当前验证队列
+
+1. 评审并冻结 [P0 数据契约](./docs/specs/p0-domain-contract.md)；
+2. 选择 PostgreSQL-backed queue，并验证租约、重试、死信和幂等；
+3. 确定 Horizon 的引入方式：内部 fork、提取低层 fetcher，或按 interface 重写；
+4. 用 Horizon 与一个非 Horizon adapter 完成相同 Ingest 契约测试；
+5. 用真实中英文来源跑通 `Ingest → Select → Digest → Feedback` tracer bullet；
+6. 运行 500 / 1,000 / 2,000 条每日负载与成本实验；
+7. 团队连续使用 Digest 后，再决定 Story 和 Compile 是否立项。
+
+研究证据与历史假设见 [`docs/research`](./docs/research/README.md)。
 
 ## 技术决策
 
-- [ADR-0001：后端主语言与 Horizon 集成边界](./docs/decisions/0001-backend-language-and-boundary.md) — `Proposed`
+- [ADR-0001：后端主语言与运行形态](./docs/decisions/0001-backend-language-and-boundary.md) — `Proposed`
+- [ADR-0002：P0 范围与深模块 interface](./docs/decisions/0002-p0-scope-and-module-interfaces.md) — `Proposed`
+- [P0 规范数据契约](./docs/specs/p0-domain-contract.md) — `Draft`
 
-## 验收方向
+## 合规与使用约束
 
-选型阶段结束时，应能回答：
-
-- 每类信源如何合法、稳定地进入系统？
-- 一条内容如何从原始记录变成可解释的精选或 Story？
-- 哪些能力直接复用，哪些通过适配层扩展，哪些必须自研？
-- 日处理 500–2,000 条时的质量、延迟、模型成本和运维复杂度如何？
-- 上游项目、数据源和生成内容的许可证及商业化边界是什么？
-
-## 合规与使用边界
-
-- 尊重站点 ToS、robots、访问频率、版权和转载规范；优先使用官方 API、RSS 或明确授权渠道。
-- 微信公众号内容默认只保存检索、去重与摘要所需的最小数据，并保留原文链接；具体方案须经专项合规评估。
-- AI 生成的摘要和推荐理由不是事实来源，产品展示必须保留原始信源和不确定性。
-- 引入任何开源代码、源清单或数据前，分别核验其代码许可证、内容授权与商用条件。
-- AIHOT 现行条款允许同一组织内部研究、情报和决策使用；任何对外收费、客户交付、代理接口、公开镜像、批量再分发或外部 RAG / 模型产品都必须先取得书面授权。
-- 本仓库为团队内部私有项目；未经团队确认，不公开内部信源、凭据、评分策略或采集数据。
+- 优先官方 API、RSS 或明确授权入口，并遵守 ToS、robots、访问频率、版权和转载规范。
+- 授权未审核来源默认只长期保留元数据、短摘录、hash 和内部派生记录；原始/规范全文最多保留 7 天。
+- 微信公众号内容默认不做全文镜像；具体 connector 必须通过专项合规、稳定性与多上游评估。
+- AI 生成内容不是事实来源，产品展示必须保留原始信源、版本和不确定性。
+- AIHOT 可用于同一组织内部情报；任何对外收费、客户交付、代理、镜像、批量再分发或外部 RAG/模型产品必须先获书面授权。
+- 本仓库为团队内部私有项目；未经确认，不公开内部信源、凭据、评分策略或采集数据。
 
 ## 项目状态
 
-**阶段：Discovery / 选型调研。** 当前仓库先承载研究结论、架构决策、实验和后续实现；技术栈与上游底座尚未最终确定。
+**Discovery / 接口收敛。** 当前不按目录草图 scaffold；先冻结 P0 契约、完成两个真实 adapter 的 tracer bullet，再决定 Horizon 实现范围和 ADR 状态。

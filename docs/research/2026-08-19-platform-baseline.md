@@ -2,16 +2,17 @@
 
 > 调研日期：2026-08-19  
 > 阶段：Discovery  
-> 目的：校验交接清单中的首轮判断，为 IC 的底座选型划定边界。
+> 目的：校验交接清单中的首轮判断，识别 IC 的候选 seam 与实际复用范围。
+> 规范影响：本报告保存研究证据；P0 interface 以后续 ADR 与数据契约为准。
 
 ## 执行摘要
 
 首轮结论不是“fork Horizon 做完全部事情”，而是：
 
 1. **AIHOT 是产品与数据契约标杆**。其公开产品面、REST、RSS、MCP 和 Skill 值得学习，但数据与服务不属于可自由商用的开源资产。
-2. **Horizon 是目前最值得验证的采集与 AI 加工 worker**。它有统一内容模型、profile 驱动评分/增强和多渠道输出，但没有 IC 所需的数据库、常驻调度、检索、多人协作和反馈闭环。
+2. **Horizon 是 Ingest implementation 的优先验证候选**。其 fetcher、解析工具和 provider routing 值得测试；整条评分/增强/Markdown pipeline 是否复用仍需通过删除测试。
 3. **ai-news-aggregator 适合帮助发现中文源和参考静态 Feed/UI**。它没有直接采集微信，公众号链路集中依赖单一第三方 RSS 镜像，且源码授权文本不完整，不宜直接作为生产依赖。
-4. **IC 应拥有自己的核心数据契约和产品层**，把具体采集器与处理引擎设计成可替换 worker。
+4. **IC 应拥有自己的核心数据契约和产品层**；来源 adapter 通过同一个 Ingest interface 进入规范 Item，Select 独立拥有 IC 的 Score 与 Digest 语义。
 
 ## 1. AIHOT
 
@@ -60,7 +61,7 @@
 
 适合复用或借鉴：
 
-- 统一 `ContentItem`；
+- `ContentItem` 作为上游扁平内容模型的经验，但不是 IC `Item` 的规范定义；
 - profile 驱动的分析与增强；
 - 两阶段 AI 加工；
 - MCP 分阶段产物；
@@ -70,8 +71,8 @@ IC 必须补齐：
 
 - 数据库、增量状态与全文/向量检索；
 - 可靠调度、任务队列、重试和逐源健康监控；
-- Source registry 与插件式 worker 接口；
-- Story 聚类、反馈、多人协作、权限与管理界面；
+- Ingest module interface、多个来源 adapter 与逐源运行状态；
+- P0 Feedback；P0.5 Story；以及后续多人协作、权限与管理界面；
 - 评分、模型、提示词和内容变更的版本化审计。
 
 ### 风险
@@ -112,19 +113,21 @@ IC 必须补齐：
 
 ```mermaid
 flowchart LR
-    A["可替换 Source Adapters"] --> B["可替换采集/加工 Workers"]
-    B --> C["IC 自有数据契约与持久化"]
-    C --> D["Story / Digest / Search / Feedback"]
-    D --> E["Web / Feishu / Email / RSS / API / MCP"]
+    H["Horizon fetch adapter"] --> I["Ingest interface"]
+    N["非 Horizon adapter\nRSS / Email / 合规中文源"] --> I
+    I --> D[("IC RawDocument + Item")]
+    D --> S["Select"]
+    S --> G["Digest + Feedback"]
+    G --> O["Web / HTTP / RSS / Agent adapters"]
 ```
 
-Horizon 进入原型验证，但不会在验证前被定义为完整产品底座。中文源需要多上游、可追踪、可降级的独立适配方案。AIHOT 只用于学习产品与契约，并严格区分“技术可访问”与“用途获授权”。
+Horizon 进入低层能力原型验证，但不会在验证前被定义为完整产品底座或整管线入口。中文源需要多个可替换 adapter 满足同一个 Ingest interface，并共享逐源监控、失败和降级语义。AIHOT 只用于学习产品与契约，并严格区分“技术可访问”与“用途获授权”。
 
 ## 下一步验证
 
-1. 用 Horizon 跑一条中英文混合的端到端 tracer bullet；
-2. 定义 IC 最小数据契约和 provenance/license 字段；
-3. 验证 Newsletter/email、官方 RSS/API 与公众号替代链路；
-4. 对 500–2,000 条/日做延迟、失败率和模型成本压测；
-5. 完成底座 ADR，再决定 fork、适配或重写边界。
-
+1. 评审并冻结 P0 领域角色、ID、provenance 和 SourcePolicy；
+2. 用 Horizon 与一个非 Horizon adapter 通过同一 Ingest 契约测试；
+3. 验证 Newsletter 的 Email/RSS 端点、官方 RSS/API 与中文来源链路；
+4. 跑通 `Ingest → Select → Digest → Feedback` tracer bullet；
+5. 对 500–2,000 条/日做延迟、失败率和模型成本压测；
+6. 再决定 Horizon 采用 fork、提取低层实现或按 interface 重写。
