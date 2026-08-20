@@ -7,7 +7,15 @@ from typing import Literal
 from pydantic import BaseModel, Field, model_validator
 from sqlalchemy import desc, select
 
-from ic.db import Database, DigestEntryRow, DigestRow, FeedbackRow, ItemRow, ScoreRow
+from ic.db import (
+    Database,
+    DigestEntryRow,
+    DigestRow,
+    FeedbackRow,
+    ItemRevisionRow,
+    ItemRow,
+    ScoreRow,
+)
 
 
 class FeedbackRequest(BaseModel):
@@ -15,6 +23,7 @@ class FeedbackRequest(BaseModel):
     target_kind: Literal["digest_entry", "item"]
     target_id: str
     digest_id: str | None = None
+    item_content_hash: str | None = None
     label: Literal["useful", "useless", "misclassified"]
     idempotency_key: str = Field(min_length=1, max_length=240)
     reason_code: str | None = None
@@ -24,6 +33,8 @@ class FeedbackRequest(BaseModel):
     def digest_context_is_present(self) -> FeedbackRequest:
         if self.target_kind == "digest_entry" and self.digest_id is None:
             raise ValueError("digest_id is required for digest_entry feedback")
+        if self.target_kind == "item" and self.item_content_hash is None:
+            raise ValueError("item_content_hash is required for item feedback")
         return self
 
 
@@ -77,12 +88,21 @@ class Feedback:
                 if item is None:
                     raise KeyError("feedback Item does not exist")
                 item_id = item.id
-                item_content_hash = item.current_content_hash
+                assert request.item_content_hash is not None
+                revision = session.scalar(
+                    select(ItemRevisionRow).where(
+                        ItemRevisionRow.item_id == item.id,
+                        ItemRevisionRow.content_hash == request.item_content_hash,
+                    )
+                )
+                if revision is None:
+                    raise KeyError("feedback Item revision does not exist")
+                item_content_hash = revision.content_hash
                 score = session.scalar(
                     select(ScoreRow)
                     .where(
                         ScoreRow.item_id == item.id,
-                        ScoreRow.item_content_hash == item.current_content_hash,
+                        ScoreRow.item_content_hash == item_content_hash,
                     )
                     .order_by(desc(ScoreRow.created_at))
                     .limit(1)
@@ -102,6 +122,7 @@ class Feedback:
                 item_content_hash=item_content_hash,
                 score_id=score_id,
                 policy_version=policy_version,
+                input_ids=[f"{item_id}:{item_content_hash}"],
                 label=request.label,
                 reason_code=request.reason_code,
                 comment=request.comment,

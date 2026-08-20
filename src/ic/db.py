@@ -37,6 +37,7 @@ class SourceRow(Base):
     __tablename__ = "sources"
 
     id: Mapped[str] = mapped_column(String(80), primary_key=True)
+    schema_version: Mapped[int] = mapped_column(Integer, default=1)
     canonical_key: Mapped[str] = mapped_column(String(160), unique=True)
     name: Mapped[str] = mapped_column(String(240))
     category: Mapped[str] = mapped_column(String(80), default="technology")
@@ -47,8 +48,10 @@ class SourceRow(Base):
 
 class SourcePolicyRow(Base):
     __tablename__ = "source_policies"
+    __table_args__ = (UniqueConstraint("source_id", "version"),)
 
     id: Mapped[str] = mapped_column(String(120), primary_key=True)
+    schema_version: Mapped[int] = mapped_column(Integer, default=1)
     source_id: Mapped[str] = mapped_column(ForeignKey("sources.id"), index=True)
     version: Mapped[str] = mapped_column(String(80))
     acquisition_basis: Mapped[str] = mapped_column(String(120), default="internal-research")
@@ -65,6 +68,7 @@ class SourceEndpointRow(Base):
     __tablename__ = "source_endpoints"
 
     id: Mapped[str] = mapped_column(String(120), primary_key=True)
+    schema_version: Mapped[int] = mapped_column(Integer, default=1)
     source_id: Mapped[str] = mapped_column(ForeignKey("sources.id"), index=True)
     kind: Mapped[str] = mapped_column(String(80))
     locator: Mapped[str] = mapped_column(Text)
@@ -91,6 +95,7 @@ class RawDocumentRow(Base):
     __table_args__ = (UniqueConstraint("endpoint_id", "payload_hash"),)
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    schema_version: Mapped[int] = mapped_column(Integer, default=1)
     endpoint_id: Mapped[str] = mapped_column(ForeignKey("source_endpoints.id"), index=True)
     observed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
     upstream_id: Mapped[str | None] = mapped_column(String(240), nullable=True)
@@ -113,6 +118,7 @@ class ItemRow(Base):
     __table_args__ = (UniqueConstraint("source_id", "identity_key"),)
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    schema_version: Mapped[int] = mapped_column(Integer, default=1)
     source_id: Mapped[str] = mapped_column(ForeignKey("sources.id"), index=True)
     identity_key: Mapped[str] = mapped_column(Text)
     current_revision: Mapped[int] = mapped_column(Integer)
@@ -126,6 +132,7 @@ class ItemRevisionRow(Base):
 
     item_id: Mapped[str] = mapped_column(ForeignKey("items.id"), primary_key=True)
     revision: Mapped[int] = mapped_column(Integer, primary_key=True)
+    schema_version: Mapped[int] = mapped_column(Integer, default=1)
     content_hash: Mapped[str] = mapped_column(String(64), index=True)
     title: Mapped[str] = mapped_column(Text)
     authors: Mapped[list[str]] = mapped_column(JSON, default=list)
@@ -145,6 +152,7 @@ class ProvenanceRow(Base):
     item_id: Mapped[str] = mapped_column(ForeignKey("items.id"), primary_key=True)
     content_hash: Mapped[str] = mapped_column(String(64), primary_key=True)
     raw_document_id: Mapped[str] = mapped_column(ForeignKey("raw_documents.id"), primary_key=True)
+    schema_version: Mapped[int] = mapped_column(Integer, default=1)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
 
 
@@ -152,9 +160,14 @@ class CandidateSnapshotRow(Base):
     __tablename__ = "candidate_snapshots"
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    schema_version: Mapped[int] = mapped_column(Integer, default=1)
     kind: Mapped[str] = mapped_column(String(32))
     scope: Mapped[dict[str, Any]] = mapped_column(JSON)
     query_version: Mapped[str] = mapped_column(String(80))
+    producer: Mapped[str] = mapped_column(String(120), default="ic.select")
+    producer_version: Mapped[str] = mapped_column(String(80), default="0.1.0")
+    input_ids: Mapped[list[str]] = mapped_column(JSON, default=list)
+    policy_version: Mapped[str] = mapped_column(String(120), default="source-policy-set:v1")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
     closed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
 
@@ -166,12 +179,15 @@ class SnapshotItemRow(Base):
     item_id: Mapped[str] = mapped_column(ForeignKey("items.id"), primary_key=True)
     content_hash: Mapped[str] = mapped_column(String(64))
     position: Mapped[int] = mapped_column(Integer)
+    schema_version: Mapped[int] = mapped_column(Integer, default=1)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
 
 
 class ScoreRow(Base):
     __tablename__ = "scores"
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    schema_version: Mapped[int] = mapped_column(Integer, default=1)
     item_id: Mapped[str] = mapped_column(ForeignKey("items.id"), index=True)
     item_content_hash: Mapped[str] = mapped_column(String(64), index=True)
     dimensions: Mapped[dict[str, float]] = mapped_column(JSON)
@@ -181,6 +197,9 @@ class ScoreRow(Base):
     model_id: Mapped[str] = mapped_column(String(120))
     prompt_version: Mapped[str] = mapped_column(String(120))
     policy_version: Mapped[str] = mapped_column(String(120))
+    producer: Mapped[str] = mapped_column(String(120), default="ic.select")
+    producer_version: Mapped[str] = mapped_column(String(80), default="0.1.0")
+    input_ids: Mapped[list[str]] = mapped_column(JSON, default=list)
     input_hash: Mapped[str] = mapped_column(String(64))
     input_availability: Mapped[str] = mapped_column(String(40))
     status: Mapped[str] = mapped_column(String(32), default="active")
@@ -191,6 +210,7 @@ class DigestRow(Base):
     __tablename__ = "digests"
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    schema_version: Mapped[int] = mapped_column(Integer, default=1)
     run_key: Mapped[str] = mapped_column(String(64), unique=True)
     kind: Mapped[str] = mapped_column(String(32))
     snapshot_id: Mapped[str] = mapped_column(ForeignKey("candidate_snapshots.id"), index=True)
@@ -198,15 +218,20 @@ class DigestRow(Base):
     period_end: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     timezone: Mapped[str] = mapped_column(String(80))
     policy_version: Mapped[str] = mapped_column(String(120))
+    producer: Mapped[str] = mapped_column(String(120), default="ic.select")
+    producer_version: Mapped[str] = mapped_column(String(80), default="0.1.0")
+    input_ids: Mapped[list[str]] = mapped_column(JSON, default=list)
     status: Mapped[str] = mapped_column(String(32), default="published")
     generated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
     published_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
 
 
 class DigestEntryRow(Base):
     __tablename__ = "digest_entries"
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    schema_version: Mapped[int] = mapped_column(Integer, default=1)
     digest_id: Mapped[str] = mapped_column(ForeignKey("digests.id"), index=True)
     item_id: Mapped[str] = mapped_column(ForeignKey("items.id"), index=True)
     item_content_hash: Mapped[str] = mapped_column(String(64))
@@ -215,12 +240,14 @@ class DigestEntryRow(Base):
     channel: Mapped[str] = mapped_column(String(40), default="discovery")
     summary: Mapped[str] = mapped_column(Text)
     recommendation_reason: Mapped[str] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
 
 
 class FeedbackRow(Base):
     __tablename__ = "feedback"
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    schema_version: Mapped[int] = mapped_column(Integer, default=1)
     idempotency_key: Mapped[str] = mapped_column(String(240), unique=True)
     actor_id: Mapped[str] = mapped_column(String(160))
     target_kind: Mapped[str] = mapped_column(String(40))
@@ -235,6 +262,9 @@ class FeedbackRow(Base):
     item_content_hash: Mapped[str] = mapped_column(String(64))
     score_id: Mapped[str | None] = mapped_column(ForeignKey("scores.id"), nullable=True)
     policy_version: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    producer: Mapped[str] = mapped_column(String(120), default="ic.feedback")
+    producer_version: Mapped[str] = mapped_column(String(80), default="0.1.0")
+    input_ids: Mapped[list[str]] = mapped_column(JSON, default=list)
     label: Mapped[str] = mapped_column(String(40))
     reason_code: Mapped[str | None] = mapped_column(String(120), nullable=True)
     comment: Mapped[str | None] = mapped_column(Text, nullable=True)
@@ -245,8 +275,13 @@ class PolicyProposalRow(Base):
     __tablename__ = "policy_proposals"
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    schema_version: Mapped[int] = mapped_column(Integer, default=1)
     base_policy_version: Mapped[str] = mapped_column(String(120))
     candidate_policy_version: Mapped[str] = mapped_column(String(120))
+    policy_version: Mapped[str] = mapped_column(String(120))
+    producer: Mapped[str] = mapped_column(String(120), default="ic.calibration")
+    producer_version: Mapped[str] = mapped_column(String(80), default="0.1.0")
+    input_ids: Mapped[list[str]] = mapped_column(JSON, default=list)
     proposed_by: Mapped[str] = mapped_column(String(160))
     feedback_summary: Mapped[dict[str, int]] = mapped_column(JSON)
     status: Mapped[str] = mapped_column(String(40), default="proposed")
@@ -261,10 +296,12 @@ class PolicyActivationRow(Base):
     __tablename__ = "policy_activations"
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    schema_version: Mapped[int] = mapped_column(Integer, default=1)
     proposal_id: Mapped[str] = mapped_column(ForeignKey("policy_proposals.id"), unique=True)
     policy_version: Mapped[str] = mapped_column(String(120), index=True)
     activated_by: Mapped[str] = mapped_column(String(160))
     activated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
 
 
 class Database:

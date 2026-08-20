@@ -58,10 +58,10 @@
 `SelectionScope` 只负责封闭候选集合：
 
 - `daily`：由 `timezone + [period_start, period_end)` 定义固定周期；周期结束后封闭；
-- `stream`：由同 kind 上次已发布 Digest 的 watermark 之后的新 Item、稳定排序和硬上限定义；
+- `stream`：由同 kind、同 Source/语言过滤条件的上次已发布 Digest watermark 之后的新 Item、稳定排序和硬上限定义；超过上限时必须拒绝封闭或使用可续传游标，不得推进 watermark 后跳过候选；
 - scope 还可以限制 Source 集合和语言，但不得使用无界历史查询。
 
-创建 snapshot 后必须持久化 `CandidateSnapshot`。`select` 和策略回放只接收 `snapshot_id + policy_version`，不得现场重新查询 Item。一个 snapshot 只能产生一种 Digest kind；同一次 select 不得同时追加精选流并重算日报。
+创建 snapshot 后必须持久化 `CandidateSnapshot`。`select` 和策略回放只接收 `snapshot_id + policy_version + purpose`，不得现场重新查询 Item。`purpose=publish` 只接受已激活或显式 bootstrap 的策略；`purpose=replay` 产生不设置 `published_at`、不推进 watermark 的评估 Digest。一个 snapshot 只能产生一种 Digest kind；同一次 select 不得同时追加精选流并重算日报。
 
 ### 读取与 Feedback
 
@@ -72,7 +72,7 @@
 - 当前有效 Score 摘要与其策略/模型版本；
 - 原始 payload 是否仍可访问；默认不返回原始全文。
 
-`FeedbackTarget` 必须包含 target kind 与 id。针对推荐结果的反馈优先绑定 `digest_id + digest_entry_id`，并在 Feedback 中固化当时的 `item_id + item_content_hash + score_id + policy_version`；直接 Item 反馈也必须绑定内容 hash，避免落到错误 revision。
+`FeedbackTarget` 必须包含 target kind 与 id。针对推荐结果的反馈优先绑定 `digest_id + digest_entry_id`，并在 Feedback 中固化当时的 `item_id + item_content_hash + score_id + policy_version`；直接 Item 反馈请求必须携带调用方看到的 `item_content_hash`，服务端验证该 revision 存在后再记录，避免落到错误 revision。
 
 ## 关键不变量
 
@@ -84,7 +84,7 @@
 6. CandidateSnapshot 必须持久化并绑定每个 Item 的 content hash；Select 与策略回放不得用相同查询条件重新构造候选集。
 7. Score 与 Digest entry 必须绑定 `item_id + item_content_hash`。Item 事实变更后，旧 Score 标记 stale，但不得删除或改写；旧 Digest 保持历史真实性。
 8. Score 必须绑定完整输入 hash、模型、提示词和策略版本；新评分不得覆盖旧评分。
-9. Digest 在 draft 状态可以重算；发布后冻结，修正产生新版本。每个 entry 必须同时给出回源、摘要和入选理由。
+9. Digest 在 draft 状态可以重算；发布后冻结，修正产生新版本。策略回放 Digest 必须使用独立状态，不得设置 `published_at` 或进入线上 watermark。每个 entry 必须同时给出回源、摘要和入选理由。
 10. Feedback 不得直接改写历史 Score 或 SourcePolicy，只能进入人工处置、策略提案或重评分流程。
 11. 跨 Source 的语义相似内容在 P0 不得合并成一个 Item；后续由 Story 表达事件聚类，避免把“相似”误当成“同一内容”。
 
@@ -134,7 +134,8 @@ P0 不把逐源重型法律审查作为 tracer bullet 的前置条件；来源�
 - 重放同一 endpoint 不产生重复 Item；
 - 跨端点命中同一 Item 时 provenance 完整；
 - 每个 Digest entry 可回溯到 Item、Score、策略版本和原始来源；
-- 相同 CandidateSnapshot 与策略版本重放不现场重查，也不产生第二份 Digest；
+- 相同 CandidateSnapshot、策略版本与运行目的重放不现场重查，也不产生第二份 Digest；
+- 回放不发布、不推进 watermark，未激活策略不得以 publish 目的运行；
 - Item revision 变化后旧 Score 被标记 stale，历史 Digest 不变；
 - 过期全文回放只能生成明确标记 degraded 的结果；
 - 发布后的 Digest、历史 Score 和 Feedback 不被覆盖；

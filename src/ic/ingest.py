@@ -13,11 +13,11 @@ from time import struct_time
 from typing import Protocol
 
 import feedparser
-import httpx
 from pydantic import BaseModel, Field
 from sqlalchemy import select, update
 from sqlalchemy.orm import Session
 
+from ic.adapters import fetch_failure_from_exception
 from ic.db import (
     Database,
     ItemRevisionRow,
@@ -138,13 +138,16 @@ class Ingest:
                 ),
                 started_monotonic,
             )
-        if policy is None or "fetch" not in policy.permitted_actions:
+        required_actions = {"fetch", "process"}
+        permitted_actions = set(policy.permitted_actions) if policy is not None else set()
+        missing_actions = sorted(required_actions - permitted_actions)
+        if missing_actions:
             return self._observe(
                 self._failed_before_fetch(
                     endpoint,
                     started_at,
                     "SourcePolicyDenied",
-                    "SourcePolicy does not permit fetch",
+                    f"SourcePolicy does not permit required actions: {', '.join(missing_actions)}",
                 ),
                 started_monotonic,
             )
@@ -301,16 +304,7 @@ class Ingest:
 
     @staticmethod
     def _fetch_failure(error: Exception) -> FetchFailure:
-        retryable = isinstance(error, httpx.TransportError)
-        retry_at = None
-        if isinstance(error, httpx.HTTPStatusError):
-            retryable = error.response.status_code == 429 or error.response.status_code >= 500
-        return FetchFailure(
-            error_type=type(error).__name__,
-            message=str(error),
-            retryable=retryable,
-            retry_at=retry_at,
-        )
+        return fetch_failure_from_exception(error)
 
     @staticmethod
     def _save_raw_document(

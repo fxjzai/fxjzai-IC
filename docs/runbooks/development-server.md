@@ -99,3 +99,16 @@ docker compose exec postgres pg_isready -U ic -d ic
 ## Service state
 
 本节在每次部署后更新，记录当前 commit、容器状态和真实请求结果；不得只根据容器启动成功判断 tracer bullet 通过。
+
+### 本轮部署记录（待回填）
+
+| 项目 | 实际状态 |
+| --- | --- |
+| 部署时间 | 待回填 |
+| 部署 commit | 待回填 |
+| `docker compose ps` | 待回填 |
+| `/health` 实际响应 | 待回填 |
+| OpenAI News RSS Ingest | 待回填 |
+| Horizon Hacker News Ingest | 待回填 |
+| Snapshot / Digest / Feedback | 待回填 |
+| 已知问题与后续动作 | 待回填 |

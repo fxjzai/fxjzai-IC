@@ -3,12 +3,12 @@ from __future__ import annotations
 import hashlib
 import json
 import uuid
+from collections.abc import Callable
 from datetime import UTC, datetime, time
 from typing import Literal
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from pydantic import BaseModel, Field, model_validator
-from sqlalchemy import func
 from sqlalchemy import select as sql_select
 from sqlalchemy.orm import Session
 
@@ -19,14 +19,21 @@ from ic.db import (
     DigestRow,
     ItemRevisionRow,
     ItemRow,
+    PolicyActivationRow,
+    ProvenanceRow,
+    RawDocumentRow,
     ScoreRow,
     SnapshotItemRow,
+    SourceEndpointRow,
+    SourcePolicyRow,
     utc_now,
 )
 
 MODEL_ID = "tracer-heuristic-v1"
 PROMPT_VERSION = "none-v1"
 QUERY_VERSION = "current-revisions-v1"
+BOOTSTRAP_POLICY_VERSIONS = frozenset({"tracer-policy-v1"})
+SelectionPurpose = Literal["publish", "replay"]
 
 
 class SelectionScope(BaseModel):
@@ -91,6 +98,7 @@ class DigestView(BaseModel):
     policy_version: str
     status: str
     generated_at: datetime
+    published_at: datetime | None
     reused: bool
     entries: list[DigestEntryView]
 
@@ -110,6 +118,7 @@ def digest_view(session: Session, digest: DigestRow, *, reused: bool) -> DigestV
         policy_version=digest.policy_version,
         status=digest.status,
         generated_at=digest.generated_at,
+        published_at=digest.published_at,
         reused=reused,
         entries=[
             DigestEntryView(
@@ -133,21 +142,39 @@ def digest_view(session: Session, digest: DigestRow, *, reused: bool) -> DigestV
 
 
 class Select:
-    def __init__(self, database: Database) -> None:
+    def __init__(
+        self,
+        database: Database,
+        *,
+        clock: Callable[[], datetime] = utc_now,
+        bootstrap_policy_versions: frozenset[str] = BOOTSTRAP_POLICY_VERSIONS,
+    ) -> None:
         self._database = database
+        self._clock = clock
+        self._bootstrap_policy_versions = bootstrap_policy_versions
 
     def create_candidate_snapshot(self, scope: SelectionScope) -> CandidateSnapshotView:
+        now = self._clock()
+        if now.tzinfo is None:
+            raise ValueError("selection clock must be timezone-aware")
+        if scope.kind == "daily" and scope.period_end > now:
+            raise ValueError("daily period has not ended")
+        normalized_scope = scope.model_copy(
+            update={
+                "source_ids": sorted(set(scope.source_ids)),
+                "languages": sorted(set(scope.languages)),
+            }
+        )
         with self._database.session() as session, session.begin():
-            scope_lock = json.dumps(scope.model_dump(mode="json"), sort_keys=True)
+            scope_lock = (
+                self._stream_identity(normalized_scope)
+                if scope.kind == "stream"
+                else json.dumps(normalized_scope.model_dump(mode="json"), sort_keys=True)
+            )
             self._database.advisory_lock(session, f"candidate-snapshot:{scope_lock}")
-            resolved_scope = scope
+            resolved_scope = normalized_scope
             if scope.kind == "stream":
-                watermark = session.scalar(
-                    sql_select(func.max(DigestRow.period_end)).where(
-                        DigestRow.kind == "stream",
-                        DigestRow.status.in_(["published", "degraded"]),
-                    )
-                )
+                watermark = self._stream_watermark(session, normalized_scope)
                 if watermark is not None:
                     if watermark.tzinfo is None:
                         watermark = watermark.replace(tzinfo=UTC)
@@ -166,13 +193,28 @@ class Select:
                     ItemRevisionRow.discovered_at < resolved_scope.period_end,
                 )
                 .order_by(ItemRevisionRow.discovered_at, ItemRow.id)
-                .limit(resolved_scope.limit)
             )
             if resolved_scope.source_ids:
                 statement = statement.where(ItemRow.source_id.in_(resolved_scope.source_ids))
             if resolved_scope.languages:
                 statement = statement.where(ItemRevisionRow.language.in_(resolved_scope.languages))
-            rows = list(session.execute(statement).all())
+            rows: list[tuple[ItemRow, ItemRevisionRow]] = []
+            source_policy_refs: set[str] = set()
+            for item, revision in session.execute(statement).all():
+                allowed_policy_refs = self._source_policy_refs_allowing_selection(
+                    session, item.id, revision.content_hash
+                )
+                if not allowed_policy_refs:
+                    continue
+                if len(rows) == resolved_scope.limit:
+                    if resolved_scope.kind == "stream":
+                        raise ValueError(
+                            "stream candidate count exceeds limit; "
+                            "increase the limit or narrow the period"
+                        )
+                    break
+                rows.append((item, revision))
+                source_policy_refs.update(allowed_policy_refs)
             refs = [
                 SnapshotItemRef(item_id=item.id, content_hash=revision.content_hash)
                 for item, revision in rows
@@ -182,19 +224,26 @@ class Select:
                     "query_version": QUERY_VERSION,
                     "scope": resolved_scope.model_dump(mode="json"),
                     "refs": [ref.model_dump() for ref in refs],
+                    "source_policy_refs": sorted(source_policy_refs),
                 },
                 sort_keys=True,
                 separators=(",", ":"),
             )
             snapshot_id = str(uuid.uuid5(uuid.NAMESPACE_URL, f"ic:snapshot:{identity}"))
+            policy_set_hash = hashlib.sha256(
+                json.dumps(sorted(source_policy_refs), separators=(",", ":")).encode()
+            ).hexdigest()
             existing = session.get(CandidateSnapshotRow, snapshot_id)
             if existing is None:
-                now = utc_now()
                 existing = CandidateSnapshotRow(
                     id=snapshot_id,
                     kind=resolved_scope.kind,
                     scope=resolved_scope.model_dump(mode="json"),
                     query_version=QUERY_VERSION,
+                    producer="ic.select",
+                    producer_version="0.1.0",
+                    input_ids=[f"item:{ref.item_id}:{ref.content_hash}" for ref in refs],
+                    policy_version=f"source-policy-set:{policy_set_hash}",
                     created_at=now,
                     closed_at=now,
                 )
@@ -217,19 +266,29 @@ class Select:
                 closed_at=existing.closed_at,
             )
 
-    def select(self, snapshot_id: str, policy_version: str) -> DigestView:
+    def select(
+        self,
+        snapshot_id: str,
+        policy_version: str,
+        *,
+        purpose: SelectionPurpose = "publish",
+    ) -> DigestView:
+        if purpose not in {"publish", "replay"}:
+            raise ValueError(f"unknown selection purpose: {purpose}")
         run_key = hashlib.sha256(
-            f"{snapshot_id}:{policy_version}:{MODEL_ID}:{PROMPT_VERSION}".encode()
+            f"{snapshot_id}:{policy_version}:{MODEL_ID}:{PROMPT_VERSION}:{purpose}".encode()
         ).hexdigest()
         with self._database.session() as session, session.begin():
             self._database.advisory_lock(session, f"digest:{run_key}")
+            snapshot = session.get(CandidateSnapshotRow, snapshot_id)
+            if snapshot is None:
+                raise KeyError(f"unknown candidate snapshot: {snapshot_id}")
+            if purpose == "publish" and not self._policy_is_active(session, policy_version):
+                raise ValueError(f"selection policy is not active: {policy_version}")
             existing = session.scalar(sql_select(DigestRow).where(DigestRow.run_key == run_key))
             if existing is not None:
                 return digest_view(session, existing, reused=True)
 
-            snapshot = session.get(CandidateSnapshotRow, snapshot_id)
-            if snapshot is None:
-                raise KeyError(f"unknown candidate snapshot: {snapshot_id}")
             scope = snapshot.scope
             digest_id = str(uuid.uuid5(uuid.NAMESPACE_URL, f"ic:digest:{run_key}"))
             generated_at = utc_now()
@@ -242,9 +301,12 @@ class Select:
                 period_end=datetime.fromisoformat(scope["period_end"]),
                 timezone=str(scope["timezone"]),
                 policy_version=policy_version,
-                status="published",
+                producer="ic.select",
+                producer_version="0.1.0",
+                input_ids=[f"snapshot:{snapshot.id}"],
+                status="published" if purpose == "publish" else "replay",
                 generated_at=generated_at,
-                published_at=generated_at,
+                published_at=generated_at if purpose == "publish" else None,
             )
             session.add(digest)
             snapshot_items = list(
@@ -272,6 +334,17 @@ class Select:
                 availability = "full" if revision.body else "excerpt_only"
                 status = "active" if revision.body else "degraded"
                 digest_is_degraded = digest_is_degraded or status == "degraded"
+                scoring_input = json.dumps(
+                    {
+                        "body": revision.body,
+                        "excerpt": revision.excerpt,
+                        "input_availability": availability,
+                        "title": revision.title,
+                    },
+                    ensure_ascii=False,
+                    sort_keys=True,
+                    separators=(",", ":"),
+                )
                 score_id = str(
                     uuid.uuid5(
                         uuid.NAMESPACE_URL,
@@ -291,11 +364,18 @@ class Select:
                     model_id=MODEL_ID,
                     prompt_version=PROMPT_VERSION,
                     policy_version=policy_version,
-                    input_hash=item_ref.content_hash,
+                    producer="ic.select",
+                    producer_version="0.1.0",
+                    input_ids=[
+                        f"snapshot:{snapshot.id}",
+                        f"item:{item_ref.item_id}:{item_ref.content_hash}",
+                    ],
+                    input_hash=hashlib.sha256(scoring_input.encode()).hexdigest(),
                     input_availability=availability,
                     status=status,
                 )
                 session.add(score)
+                digest.input_ids = [*digest.input_ids, f"score:{score_id}"]
                 summary = revision.excerpt or revision.title
                 session.add(
                     DigestEntryRow(
@@ -311,9 +391,94 @@ class Select:
                     )
                 )
             if digest_is_degraded:
-                digest.status = "degraded"
+                digest.status = "degraded" if purpose == "publish" else "replay_degraded"
             session.flush()
             return digest_view(session, digest, reused=False)
+
+    def _stream_watermark(self, session: Session, scope: SelectionScope) -> datetime | None:
+        identity = self._stream_identity(scope)
+        rows = session.execute(
+            sql_select(DigestRow, CandidateSnapshotRow)
+            .join(CandidateSnapshotRow, CandidateSnapshotRow.id == DigestRow.snapshot_id)
+            .where(
+                DigestRow.kind == "stream",
+                DigestRow.status.in_(["published", "degraded"]),
+                DigestRow.published_at.is_not(None),
+            )
+        )
+        watermarks = [
+            digest.period_end
+            for digest, snapshot in rows
+            if self._stream_identity_from_mapping(snapshot.scope) == identity
+        ]
+        return max(watermarks) if watermarks else None
+
+    @staticmethod
+    def _stream_identity(scope: SelectionScope) -> str:
+        return Select._stream_identity_from_mapping(scope.model_dump(mode="json"))
+
+    @staticmethod
+    def _stream_identity_from_mapping(scope: dict[str, object]) -> str:
+        source_ids = scope.get("source_ids")
+        languages = scope.get("languages")
+        return json.dumps(
+            {
+                "kind": "stream",
+                "source_ids": sorted(
+                    {str(value) for value in source_ids} if isinstance(source_ids, list) else set()
+                ),
+                "languages": sorted(
+                    {str(value) for value in languages} if isinstance(languages, list) else set()
+                ),
+            },
+            sort_keys=True,
+            separators=(",", ":"),
+        )
+
+    @staticmethod
+    def _source_policy_refs_allowing_selection(
+        session: Session, item_id: str, content_hash: str
+    ) -> set[str]:
+        policies = list(
+            session.scalars(
+                sql_select(SourcePolicyRow)
+                .join(
+                    SourceEndpointRow,
+                    SourceEndpointRow.source_id == SourcePolicyRow.source_id,
+                )
+                .join(
+                    RawDocumentRow,
+                    (RawDocumentRow.endpoint_id == SourceEndpointRow.id)
+                    & (RawDocumentRow.policy_version == SourcePolicyRow.version),
+                )
+                .join(
+                    ProvenanceRow,
+                    ProvenanceRow.raw_document_id == RawDocumentRow.id,
+                )
+                .where(
+                    ProvenanceRow.item_id == item_id,
+                    ProvenanceRow.content_hash == content_hash,
+                )
+            ).unique()
+        )
+        required_actions = {"process", "team_share"}
+        return {
+            f"{policy.source_id}:{policy.version}"
+            for policy in policies
+            if required_actions.issubset(set(policy.permitted_actions))
+        }
+
+    def _policy_is_active(self, session: Session, policy_version: str) -> bool:
+        if policy_version in self._bootstrap_policy_versions:
+            return True
+        return (
+            session.scalar(
+                sql_select(PolicyActivationRow.id).where(
+                    PolicyActivationRow.policy_version == policy_version
+                )
+            )
+            is not None
+        )
 
     @staticmethod
     def _score(revision: ItemRevisionRow) -> float:

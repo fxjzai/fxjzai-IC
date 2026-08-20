@@ -68,6 +68,7 @@ async def test_feedback_can_target_an_item_revision_directly() -> None:
             actor_id="ray",
             target_kind="item",
             target_id=ingested.item_refs[0],
+            item_content_hash=ingested.provenance[0].item_content_hash,
             label="misclassified",
             idempotency_key="ray:item-one:misclassified",
         )
@@ -76,7 +77,7 @@ async def test_feedback_can_target_an_item_revision_directly() -> None:
     assert receipt.target_kind == "item"
     assert receipt.target_id == ingested.item_refs[0]
     assert receipt.item_id == ingested.item_refs[0]
-    assert receipt.item_content_hash
+    assert receipt.item_content_hash == ingested.provenance[0].item_content_hash
     assert receipt.digest_id is None
 
 

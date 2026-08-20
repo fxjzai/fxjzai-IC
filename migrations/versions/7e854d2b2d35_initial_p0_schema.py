@@ -1,8 +1,8 @@
 """initial P0 schema
 
-Revision ID: 9cbf6fa0e8aa
+Revision ID: 7e854d2b2d35
 Revises:
-Create Date: 2026-08-19 18:47:20.044169
+Create Date: 2026-08-20 11:07:32.292900
 """
 
 from collections.abc import Sequence
@@ -10,7 +10,7 @@ from collections.abc import Sequence
 import sqlalchemy as sa
 from alembic import op
 
-revision: str = "9cbf6fa0e8aa"
+revision: str = "7e854d2b2d35"
 down_revision: str | Sequence[str] | None = None
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
@@ -21,9 +21,14 @@ def upgrade() -> None:
     op.create_table(
         "candidate_snapshots",
         sa.Column("id", sa.String(length=36), nullable=False),
+        sa.Column("schema_version", sa.Integer(), nullable=False),
         sa.Column("kind", sa.String(length=32), nullable=False),
         sa.Column("scope", sa.JSON(), nullable=False),
         sa.Column("query_version", sa.String(length=80), nullable=False),
+        sa.Column("producer", sa.String(length=120), nullable=False),
+        sa.Column("producer_version", sa.String(length=80), nullable=False),
+        sa.Column("input_ids", sa.JSON(), nullable=False),
+        sa.Column("policy_version", sa.String(length=120), nullable=False),
         sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
         sa.Column("closed_at", sa.DateTime(timezone=True), nullable=False),
         sa.PrimaryKeyConstraint("id"),
@@ -31,6 +36,7 @@ def upgrade() -> None:
     op.create_table(
         "sources",
         sa.Column("id", sa.String(length=80), nullable=False),
+        sa.Column("schema_version", sa.Integer(), nullable=False),
         sa.Column("canonical_key", sa.String(length=160), nullable=False),
         sa.Column("name", sa.String(length=240), nullable=False),
         sa.Column("category", sa.String(length=80), nullable=False),
@@ -43,6 +49,7 @@ def upgrade() -> None:
     op.create_table(
         "digests",
         sa.Column("id", sa.String(length=36), nullable=False),
+        sa.Column("schema_version", sa.Integer(), nullable=False),
         sa.Column("run_key", sa.String(length=64), nullable=False),
         sa.Column("kind", sa.String(length=32), nullable=False),
         sa.Column("snapshot_id", sa.String(length=36), nullable=False),
@@ -50,9 +57,13 @@ def upgrade() -> None:
         sa.Column("period_end", sa.DateTime(timezone=True), nullable=False),
         sa.Column("timezone", sa.String(length=80), nullable=False),
         sa.Column("policy_version", sa.String(length=120), nullable=False),
+        sa.Column("producer", sa.String(length=120), nullable=False),
+        sa.Column("producer_version", sa.String(length=80), nullable=False),
+        sa.Column("input_ids", sa.JSON(), nullable=False),
         sa.Column("status", sa.String(length=32), nullable=False),
         sa.Column("generated_at", sa.DateTime(timezone=True), nullable=False),
         sa.Column("published_at", sa.DateTime(timezone=True), nullable=True),
+        sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
         sa.ForeignKeyConstraint(
             ["snapshot_id"],
             ["candidate_snapshots.id"],
@@ -64,6 +75,7 @@ def upgrade() -> None:
     op.create_table(
         "items",
         sa.Column("id", sa.String(length=36), nullable=False),
+        sa.Column("schema_version", sa.Integer(), nullable=False),
         sa.Column("source_id", sa.String(length=80), nullable=False),
         sa.Column("identity_key", sa.Text(), nullable=False),
         sa.Column("current_revision", sa.Integer(), nullable=False),
@@ -84,6 +96,7 @@ def upgrade() -> None:
     op.create_table(
         "source_endpoints",
         sa.Column("id", sa.String(length=120), nullable=False),
+        sa.Column("schema_version", sa.Integer(), nullable=False),
         sa.Column("source_id", sa.String(length=80), nullable=False),
         sa.Column("kind", sa.String(length=80), nullable=False),
         sa.Column("locator", sa.Text(), nullable=False),
@@ -104,6 +117,7 @@ def upgrade() -> None:
     op.create_table(
         "source_policies",
         sa.Column("id", sa.String(length=120), nullable=False),
+        sa.Column("schema_version", sa.Integer(), nullable=False),
         sa.Column("source_id", sa.String(length=80), nullable=False),
         sa.Column("version", sa.String(length=80), nullable=False),
         sa.Column("acquisition_basis", sa.String(length=120), nullable=False),
@@ -117,6 +131,7 @@ def upgrade() -> None:
             ["sources.id"],
         ),
         sa.PrimaryKeyConstraint("id"),
+        sa.UniqueConstraint("source_id", "version"),
     )
     op.create_index(
         op.f("ix_source_policies_source_id"), "source_policies", ["source_id"], unique=False
@@ -127,6 +142,8 @@ def upgrade() -> None:
         sa.Column("item_id", sa.String(length=36), nullable=False),
         sa.Column("content_hash", sa.String(length=64), nullable=False),
         sa.Column("position", sa.Integer(), nullable=False),
+        sa.Column("schema_version", sa.Integer(), nullable=False),
+        sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
         sa.ForeignKeyConstraint(
             ["item_id"],
             ["items.id"],
@@ -141,6 +158,7 @@ def upgrade() -> None:
         "item_revisions",
         sa.Column("item_id", sa.String(length=36), nullable=False),
         sa.Column("revision", sa.Integer(), nullable=False),
+        sa.Column("schema_version", sa.Integer(), nullable=False),
         sa.Column("content_hash", sa.String(length=64), nullable=False),
         sa.Column("title", sa.Text(), nullable=False),
         sa.Column("authors", sa.JSON(), nullable=False),
@@ -167,8 +185,13 @@ def upgrade() -> None:
     op.create_table(
         "policy_proposals",
         sa.Column("id", sa.String(length=36), nullable=False),
+        sa.Column("schema_version", sa.Integer(), nullable=False),
         sa.Column("base_policy_version", sa.String(length=120), nullable=False),
         sa.Column("candidate_policy_version", sa.String(length=120), nullable=False),
+        sa.Column("policy_version", sa.String(length=120), nullable=False),
+        sa.Column("producer", sa.String(length=120), nullable=False),
+        sa.Column("producer_version", sa.String(length=80), nullable=False),
+        sa.Column("input_ids", sa.JSON(), nullable=False),
         sa.Column("proposed_by", sa.String(length=160), nullable=False),
         sa.Column("feedback_summary", sa.JSON(), nullable=False),
         sa.Column("status", sa.String(length=40), nullable=False),
@@ -188,6 +211,7 @@ def upgrade() -> None:
     op.create_table(
         "raw_documents",
         sa.Column("id", sa.String(length=36), nullable=False),
+        sa.Column("schema_version", sa.Integer(), nullable=False),
         sa.Column("endpoint_id", sa.String(length=120), nullable=False),
         sa.Column("observed_at", sa.DateTime(timezone=True), nullable=False),
         sa.Column("upstream_id", sa.String(length=240), nullable=True),
@@ -222,6 +246,7 @@ def upgrade() -> None:
     op.create_table(
         "scores",
         sa.Column("id", sa.String(length=36), nullable=False),
+        sa.Column("schema_version", sa.Integer(), nullable=False),
         sa.Column("item_id", sa.String(length=36), nullable=False),
         sa.Column("item_content_hash", sa.String(length=64), nullable=False),
         sa.Column("dimensions", sa.JSON(), nullable=False),
@@ -231,6 +256,9 @@ def upgrade() -> None:
         sa.Column("model_id", sa.String(length=120), nullable=False),
         sa.Column("prompt_version", sa.String(length=120), nullable=False),
         sa.Column("policy_version", sa.String(length=120), nullable=False),
+        sa.Column("producer", sa.String(length=120), nullable=False),
+        sa.Column("producer_version", sa.String(length=80), nullable=False),
+        sa.Column("input_ids", sa.JSON(), nullable=False),
         sa.Column("input_hash", sa.String(length=64), nullable=False),
         sa.Column("input_availability", sa.String(length=40), nullable=False),
         sa.Column("status", sa.String(length=32), nullable=False),
@@ -248,6 +276,7 @@ def upgrade() -> None:
     op.create_table(
         "digest_entries",
         sa.Column("id", sa.String(length=36), nullable=False),
+        sa.Column("schema_version", sa.Integer(), nullable=False),
         sa.Column("digest_id", sa.String(length=36), nullable=False),
         sa.Column("item_id", sa.String(length=36), nullable=False),
         sa.Column("item_content_hash", sa.String(length=64), nullable=False),
@@ -256,6 +285,7 @@ def upgrade() -> None:
         sa.Column("channel", sa.String(length=40), nullable=False),
         sa.Column("summary", sa.Text(), nullable=False),
         sa.Column("recommendation_reason", sa.Text(), nullable=False),
+        sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
         sa.ForeignKeyConstraint(
             ["digest_id"],
             ["digests.id"],
@@ -279,6 +309,7 @@ def upgrade() -> None:
         sa.Column("item_id", sa.String(length=36), nullable=False),
         sa.Column("content_hash", sa.String(length=64), nullable=False),
         sa.Column("raw_document_id", sa.String(length=36), nullable=False),
+        sa.Column("schema_version", sa.Integer(), nullable=False),
         sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
         sa.ForeignKeyConstraint(
             ["item_id"],
@@ -293,10 +324,12 @@ def upgrade() -> None:
     op.create_table(
         "policy_activations",
         sa.Column("id", sa.String(length=36), nullable=False),
+        sa.Column("schema_version", sa.Integer(), nullable=False),
         sa.Column("proposal_id", sa.String(length=36), nullable=False),
         sa.Column("policy_version", sa.String(length=120), nullable=False),
         sa.Column("activated_by", sa.String(length=160), nullable=False),
         sa.Column("activated_at", sa.DateTime(timezone=True), nullable=False),
+        sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
         sa.ForeignKeyConstraint(
             ["proposal_id"],
             ["policy_proposals.id"],
@@ -313,6 +346,7 @@ def upgrade() -> None:
     op.create_table(
         "feedback",
         sa.Column("id", sa.String(length=36), nullable=False),
+        sa.Column("schema_version", sa.Integer(), nullable=False),
         sa.Column("idempotency_key", sa.String(length=240), nullable=False),
         sa.Column("actor_id", sa.String(length=160), nullable=False),
         sa.Column("target_kind", sa.String(length=40), nullable=False),
@@ -323,6 +357,9 @@ def upgrade() -> None:
         sa.Column("item_content_hash", sa.String(length=64), nullable=False),
         sa.Column("score_id", sa.String(length=36), nullable=True),
         sa.Column("policy_version", sa.String(length=120), nullable=True),
+        sa.Column("producer", sa.String(length=120), nullable=False),
+        sa.Column("producer_version", sa.String(length=80), nullable=False),
+        sa.Column("input_ids", sa.JSON(), nullable=False),
         sa.Column("label", sa.String(length=40), nullable=False),
         sa.Column("reason_code", sa.String(length=120), nullable=True),
         sa.Column("comment", sa.Text(), nullable=True),

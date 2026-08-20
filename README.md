@@ -62,7 +62,7 @@ flowchart LR
 P0 只有两个核心写入 module：
 
 - `Ingest.ingest(endpoint) → IngestResult`：隐藏抓取、原始保存、解析、规范化、确定性去重、provenance、检查点与失败恢复；
-- `Select.create_candidate_snapshot(scope) → snapshot` 与 `Select.select(snapshot, policy) → Digest`：持久化封闭候选集，隐藏预筛、评分、摘要、推荐理由与发布幂等。
+- `Select.create_candidate_snapshot(scope) → snapshot` 与 `Select.select(snapshot, policy, purpose) → Digest`：持久化封闭候选集，隔离发布与策略回放，隐藏预筛、评分、摘要、推荐理由与幂等。
 
 `worker`、队列和时钟是运行拓扑，不是领域 module。P1 的 `Compile` 只有在团队形成稳定的 Digest 阅读、Claim 接受和 Wiki 审核行为后才建立。
 
@@ -83,7 +83,7 @@ Horizon 的 seam 已下移到 `Ingest` implementation 内部：`FetchAdapter.fet
 包含：
 
 - AI / 前沿科技动态；
-- 已登记并配置 SourcePolicy 的 Source 与 Endpoint；
+- 已登记并配置 `SourcePolicy` 的 Source 与 Endpoint；
 - 至少一个国际来源和一个可持续中文来源；
 - 增量 Ingest、确定性去重和逐源运行状态；
 - 预筛、版本化 Score、中文摘要和推荐理由；
@@ -134,7 +134,7 @@ P0 先定义同一只读语义，而不是为每种传输重写逻辑：
 - [ADR-0002：P0 范围与深模块 interface](./docs/decisions/0002-p0-scope-and-module-interfaces.md) — `Proposed`
 - [ADR-0003：内部研究的数据使用姿态](./docs/decisions/0003-internal-research-data-use-posture.md) — `Accepted`
 - [P0 规范数据契约](./docs/specs/p0-domain-contract.md) — `Draft`
-- [P0 第一发 tracer bullet](./docs/plans/p0-tracer-bullet.md) — `Ready`
+- [P0 第一发 tracer bullet](./docs/plans/p0-tracer-bullet.md) — `In validation`
 
 ## 内部使用与来源风险
 

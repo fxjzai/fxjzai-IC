@@ -44,6 +44,14 @@ def test_http_tracer_flow_reaches_feedback() -> None:
                 "limit": 20,
             },
         ).json()
+        inactive_policy = client.post(
+            "/v1/digests",
+            json={"snapshot_id": snapshot["id"], "policy_version": "tracer-policy-v2"},
+        )
+        assert inactive_policy.status_code == 400
+        assert inactive_policy.json()["detail"] == (
+            "selection policy is not active: tracer-policy-v2"
+        )
         digest = client.post(
             "/v1/digests",
             json={"snapshot_id": snapshot["id"], "policy_version": "tracer-policy-v1"},

@@ -54,6 +54,10 @@ def create_app(
     async def key_error_handler(_request: object, exc: KeyError) -> JSONResponse:
         return JSONResponse(status_code=404, content={"detail": str(exc).strip("'")})
 
+    @app.exception_handler(ValueError)
+    async def value_error_handler(_request: object, exc: ValueError) -> JSONResponse:
+        return JSONResponse(status_code=400, content={"detail": str(exc)})
+
     @app.get("/health")
     def health() -> dict[str, str]:
         with resolved_database.session() as session:

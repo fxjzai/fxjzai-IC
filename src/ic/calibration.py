@@ -68,10 +68,21 @@ class Calibration:
     ) -> PolicyProposal:
         summary = self.summarize(base_policy_version)
         with self._database.session() as session, session.begin():
+            feedback_ids = list(
+                session.scalars(
+                    select(FeedbackRow.id)
+                    .where(FeedbackRow.policy_version == base_policy_version)
+                    .order_by(FeedbackRow.created_at, FeedbackRow.id)
+                )
+            )
             row = PolicyProposalRow(
                 id=str(uuid.uuid4()),
                 base_policy_version=base_policy_version,
                 candidate_policy_version=candidate_policy_version,
+                policy_version=base_policy_version,
+                producer="ic.calibration",
+                producer_version="0.1.0",
+                input_ids=[f"feedback:{feedback_id}" for feedback_id in feedback_ids],
                 proposed_by=proposed_by,
                 feedback_summary=summary.counts,
                 status="proposed",
@@ -86,7 +97,7 @@ class Calibration:
             if proposal is None:
                 raise KeyError(f"unknown policy proposal: {proposal_id}")
             candidate_policy_version = proposal.candidate_policy_version
-        digest = self._selector.select(snapshot_id, candidate_policy_version)
+        digest = self._selector.select(snapshot_id, candidate_policy_version, purpose="replay")
         with self._database.session() as session, session.begin():
             self._database.advisory_lock(session, f"policy-proposal:{proposal_id}")
             proposal = session.get(PolicyProposalRow, proposal_id)

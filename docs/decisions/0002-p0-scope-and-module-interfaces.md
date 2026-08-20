@@ -95,7 +95,11 @@ Ingest 只在 worker 作业中执行；网络期间不持有数据库长事务�
 
 ```python
 async create_candidate_snapshot(scope: SelectionScope) -> CandidateSnapshotRef
-async select(snapshot: CandidateSnapshotRef, policy: PolicyRef) -> Digest
+async select(
+    snapshot: CandidateSnapshotRef,
+    policy: PolicyRef,
+    purpose: Literal["publish", "replay"],
+) -> Digest
 ```
 
 调用方不需要了解候选查询、模型层级或评分流水线。Select 自己负责：
@@ -109,12 +113,14 @@ async select(snapshot: CandidateSnapshotRef, policy: PolicyRef) -> Digest
 
 精选流、日报和 Top 3 是同一个 Digest 的不同 `kind/policy/view`，不是三个 module。
 
-CandidateSnapshot 的 Item ref 必须绑定 `item_id + content_hash`。`select` 与策略回放只接收 snapshot id，不得现场重查。日报 snapshot 按 timezone 和固定周期封闭；增量精选 snapshot 按同 kind 上次已发布 Digest watermark 之后的新 Item、稳定排序与硬上限封闭。一个 snapshot 只对应一种 Digest kind。
+CandidateSnapshot 的 Item ref 必须绑定 `item_id + content_hash`。`select` 与策略回放只接收 snapshot id，不得现场重查。日报 snapshot 按 timezone 和固定周期封闭；增量精选 snapshot 按同 kind、同 Source/语言过滤条件的上次已发布 Digest watermark 之后的新 Item、稳定排序与硬上限封闭。若候选数超过上限，P0 必须拒绝封闭并要求提高上限或缩小时间窗，不得推进 watermark 后跳过候选。一个 snapshot 只对应一种 Digest kind。
 
 ### 错误与幂等
 
 - 无候选内容：返回合法空结果或“不发布”，不抛系统异常；
 - 策略不存在或失效：返回不可重试配置错误；
+- `purpose=publish` 只接受已激活策略；bootstrap 策略必须显式登记；
+- `purpose=replay` 产生不可发布的评估 Digest，不设置 `published_at`，也不推进 stream watermark；
 - 模型临时不可用：按策略降级、延迟或重试，并标记 degraded；
 - 证据不足：排除候选或降低置信度，不生成无来源结论；
 - 单个候选失败：隔离该项，其余继续；
@@ -154,7 +160,7 @@ class ReadIntelligence:
 async record_feedback(target: FeedbackTarget, verdict: FeedbackVerdict) -> FeedbackReceipt
 ```
 
-P0 verdict 至少包含“有用、无用、误判”。FeedbackTarget 明确区分 Digest entry 与直接 Item；implementation 负责固化当时的 `item_id + content_hash + score_id + policy_version`，并完成幂等追加与审计。
+P0 verdict 至少包含“有用、无用、误判”。FeedbackTarget 明确区分 Digest entry 与直接 Item；直接 Item 反馈必须由调用方同时提交其看到的 `item_content_hash`，implementation 验证该 revision 存在，并固化当时的 `item_id + content_hash + score_id + policy_version`，完成幂等追加与审计。
 
 一次 Feedback 不得同步修改 Source 等级、模型权重或在线策略。校准流程是：
 

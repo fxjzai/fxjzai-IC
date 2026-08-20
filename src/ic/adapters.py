@@ -4,10 +4,41 @@ import asyncio
 import json
 from collections.abc import AsyncIterator
 from datetime import UTC, datetime, timedelta
+from email.utils import parsedate_to_datetime
 
 import httpx
 
 from ic.domain import FetchedDocument, FetchFailure, PartialFetchError, SourceEndpoint
+
+
+def fetch_failure_from_exception(
+    error: BaseException,
+    *,
+    upstream_id: str | None = None,
+) -> FetchFailure:
+    retryable = isinstance(error, httpx.TransportError)
+    retry_at = None
+    if isinstance(error, httpx.HTTPStatusError):
+        retryable = error.response.status_code == 429 or error.response.status_code >= 500
+        retry_after = error.response.headers.get("retry-after")
+        if retry_after and retry_after.isdigit():
+            retry_at = datetime.now(UTC) + timedelta(seconds=int(retry_after))
+        elif retry_after:
+            try:
+                retry_at = parsedate_to_datetime(retry_after)
+                if retry_at.tzinfo is None:
+                    retry_at = retry_at.replace(tzinfo=UTC)
+                else:
+                    retry_at = retry_at.astimezone(UTC)
+            except (TypeError, ValueError):
+                retry_at = None
+    return FetchFailure(
+        error_type=type(error).__name__,
+        message=str(error),
+        retryable=retryable,
+        upstream_id=upstream_id,
+        retry_at=retry_at,
+    )
 
 
 class NativeRssFetchAdapter:
@@ -86,17 +117,4 @@ class HorizonHackerNewsFetchAdapter:
 
     @staticmethod
     def _failure(story_id: int, error: BaseException) -> FetchFailure:
-        retryable = isinstance(error, httpx.TransportError)
-        retry_at = None
-        if isinstance(error, httpx.HTTPStatusError):
-            retryable = error.response.status_code == 429 or error.response.status_code >= 500
-            retry_after = error.response.headers.get("retry-after")
-            if retry_after and retry_after.isdigit():
-                retry_at = datetime.now(UTC) + timedelta(seconds=int(retry_after))
-        return FetchFailure(
-            error_type=type(error).__name__,
-            message=str(error),
-            retryable=retryable,
-            upstream_id=str(story_id),
-            retry_at=retry_at,
-        )
+        return fetch_failure_from_exception(error, upstream_id=str(story_id))

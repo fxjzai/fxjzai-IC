@@ -35,26 +35,32 @@ class Retention:
             expired_documents: list[RawDocumentRow] = []
             for raw in raw_documents:
                 endpoint = session.get(SourceEndpointRow, raw.endpoint_id)
-                if endpoint is None:
-                    continue
-                policy = session.scalar(
-                    select(SourcePolicyRow).where(
-                        SourcePolicyRow.source_id == endpoint.source_id,
-                        SourcePolicyRow.version == raw.policy_version,
+                policy = (
+                    session.scalar(
+                        select(SourcePolicyRow).where(
+                            SourcePolicyRow.source_id == endpoint.source_id,
+                            SourcePolicyRow.version == raw.policy_version,
+                        )
                     )
+                    if endpoint is not None
+                    else None
                 )
                 if policy is None:
-                    continue
+                    retention_days = 7
+                    deletion_reason = "default_retention_expired"
+                else:
+                    retention_days = policy.fulltext_retention_days
+                    deletion_reason = "source_policy_retention_expired"
                 observed_at = raw.observed_at
                 if observed_at.tzinfo is None:
                     observed_at = observed_at.replace(tzinfo=UTC)
-                due_at = observed_at + timedelta(days=policy.fulltext_retention_days)
+                due_at = observed_at + timedelta(days=retention_days)
                 if due_at > now:
                     continue
                 raw.payload = None
                 raw.availability = "tombstoned"
                 raw.deleted_at = now
-                raw.deletion_reason = "source_policy_retention_expired"
+                raw.deletion_reason = deletion_reason
                 expired_documents.append(raw)
                 provenance = session.scalars(
                     select(ProvenanceRow).where(ProvenanceRow.raw_document_id == raw.id)

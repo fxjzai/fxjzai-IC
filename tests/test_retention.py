@@ -36,7 +36,7 @@ async def test_reselection_after_fulltext_retention_is_explicitly_degraded() -> 
     complete = selector.select(snapshot.id, "tracer-policy-v1")
 
     expired = Retention(database).expire_due(datetime(2026, 8, 9, 10, tzinfo=UTC))
-    degraded = selector.select(snapshot.id, "tracer-policy-v2")
+    degraded = selector.select(snapshot.id, "tracer-policy-v2", purpose="replay")
     item = ReadIntelligence(database).get_item(snapshot.item_refs[0].item_id)
 
     assert expired.raw_document_count == 1
@@ -44,7 +44,7 @@ async def test_reselection_after_fulltext_retention_is_explicitly_degraded() -> 
     assert complete.entries[0].score_status == "active"
     assert complete.status == "published"
     assert degraded.entries[0].score_status == "degraded"
-    assert degraded.status == "degraded"
+    assert degraded.status == "replay_degraded"
     assert item.raw_payload_available is False
     assert item.excerpt == "Full evidence."
     assert item.provenance[0].deletion_reason == "source_policy_retention_expired"

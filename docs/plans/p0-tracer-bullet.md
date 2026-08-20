@@ -1,6 +1,6 @@
 # P0 第一发 tracer bullet
 
-- 状态：Ready（以当前 Draft 契约为验证基线）
+- 状态：In validation（当前 Draft 契约已冻结为本轮验证基线）
 - 日期：2026-08-19
 - 目的：用最少变量验证 Ingest seam 与 `Ingest → Snapshot → Select → Digest → Feedback` 闭环
 
@@ -87,15 +87,16 @@
 
 1. 分别创建 `daily` 与 `stream` SelectionScope；
 2. 持久化 CandidateSnapshot，确认每个 ref 绑定 `item_id + content_hash`；
-3. 用固定策略生成 Digest；
-4. 重放相同 snapshot/policy；
+3. 用显式 bootstrap 策略生成发布 Digest；
+4. 以 `purpose=replay` 重放相同 snapshot/policy；
 5. 修改一个 Item 形成 revision 后再次评估；
 6. 模拟 RawDocument 正文已过 7 天保留期。
 
 成功判据：
 
-- 相同 snapshot/policy 不生成第二份 Digest；
-- daily 按 timezone + period 封闭，stream 按 watermark + limit 封闭；
+- 相同 snapshot/policy/purpose 不生成第二份 Digest；
+- daily 只在 period 结束后封闭；stream 按过滤条件隔离 watermark，超过 limit 时拒绝推进而不跳过候选；
+- replay Digest 不设置发布时间、不推进 watermark，publish 只接受 bootstrap 或已激活策略；
 - 一次 select 只生成一种 Digest kind；
 - Item revision 后旧 Score 标 stale，历史 Digest 不变；
 - 缺少全文的新评估标记 degraded，不假装完整精评。
@@ -103,7 +104,7 @@
 ### TB3：读取与 Feedback
 
 1. 通过 `get_item` 与 `get_digest` 读取结果；
-2. 对一个 Digest entry 记录“有用”，对另一个记录“误判”；
+2. 对一个 Digest entry 记录“有用”，并用 `item_id + item_content_hash` 对 Item revision 记录“误判”；
 3. 重复提交同一幂等键；
 4. 生成反馈聚合报告并执行一次人工策略回放。
 
@@ -123,4 +124,4 @@
 - Digest entry 无法稳定绑定 Item revision 和 Score；
 - 7 天删除策略导致系统无法诚实表达 degraded。
 
-出现停止条件时先修改 Draft 契约或缩小 Horizon 复用范围，不继续 scaffold 上层功能。
+当前仍为 `Draft` 的 P0 契约已冻结为本轮验证基线。出现停止条件时先修改契约或缩小 Horizon 复用范围；契约发生变化后重新冻结验证基线，不继续 scaffold 上层功能。
