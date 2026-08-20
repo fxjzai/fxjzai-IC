@@ -270,6 +270,55 @@ async def test_stream_watermarks_are_isolated_by_stable_source_and_language_filt
     assert hacker_news.item_count == 1
 
 
+async def test_stream_snapshot_normalizes_equivalent_filters_after_watermark() -> None:
+    db = database()
+    observed_at = datetime(2026, 8, 19, 9, 15, tzinfo=UTC)
+    ingest = Ingest(
+        db,
+        {
+            EndpointKind.RSS: OpenAiFeed(observed_at),
+            EndpointKind.HORIZON_HACKER_NEWS: HackerNewsFeed(observed_at),
+        },
+    )
+    await ingest.ingest("openai-news-rss")
+    await ingest.ingest("horizon-hacker-news")
+    selector = Select(db, clock=lambda: datetime(2026, 8, 19, 12, tzinfo=UTC))
+    first = selector.create_candidate_snapshot(
+        SelectionScope(
+            kind="stream",
+            period_start=datetime(2026, 8, 19, 9, tzinfo=UTC),
+            period_end=datetime(2026, 8, 19, 10, tzinfo=UTC),
+            timezone="UTC",
+            source_ids=["openai", "hacker-news"],
+            languages=["en", "zh"],
+        )
+    )
+    selector.select(first.id, "tracer-policy-v1", purpose="publish")
+
+    reordered = SelectionScope(
+        kind="stream",
+        period_start=datetime(2026, 8, 19, 9, tzinfo=UTC),
+        period_end=datetime(2026, 8, 19, 11, tzinfo=UTC),
+        timezone="UTC",
+        source_ids=["hacker-news", "openai", "openai"],
+        languages=["zh", "en", "en"],
+    )
+    canonical = reordered.model_copy(
+        update={
+            "source_ids": ["hacker-news", "openai"],
+            "languages": ["en", "zh"],
+        }
+    )
+    reordered_snapshot = selector.create_candidate_snapshot(reordered)
+    canonical_snapshot = selector.create_candidate_snapshot(canonical)
+
+    assert reordered_snapshot.id == canonical_snapshot.id
+    assert (
+        selector.select(reordered_snapshot.id, "tracer-policy-v1").id
+        == selector.select(canonical_snapshot.id, "tracer-policy-v1").id
+    )
+
+
 async def test_stream_snapshot_refuses_to_advance_past_candidates_over_its_limit() -> None:
     db = database()
     await Ingest(db, {EndpointKind.RSS: TwoItemFeed()}).ingest("openai-news-rss")

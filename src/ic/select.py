@@ -180,7 +180,7 @@ class Select:
                         watermark = watermark.replace(tzinfo=UTC)
                     if watermark >= scope.period_end:
                         raise ValueError("stream watermark must be before period_end")
-                    resolved_scope = scope.model_copy(update={"period_start": watermark})
+                    resolved_scope = normalized_scope.model_copy(update={"period_start": watermark})
             statement = (
                 sql_select(ItemRow, ItemRevisionRow)
                 .join(
