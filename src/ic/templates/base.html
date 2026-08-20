@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="color-scheme" content="light">
+    <title>{% block title %}情报中心{% endblock %} · 反向加载</title>
+    <link rel="stylesheet" href="{{ url_for('static', path='/app.css') }}">
+    <script src="{{ url_for('static', path='/app.js') }}" defer></script>
+  </head>
+  <body>
+    <header class="site-header">
+      <a class="brand" href="/" aria-label="返回情报中心首页">
+        <span class="brand-mark">反</span>
+        <span>
+          <strong>反向加载</strong>
+          <small>INTELLIGENCE CENTER</small>
+        </span>
+      </a>
+      <nav>
+        <a href="/">情报流</a>
+        <a href="/docs">API</a>
+        <span class="live"><i></i> INTERNAL</span>
+      </nav>
+    </header>
+    <main>{% block content %}{% endblock %}</main>
+    <footer>
+      <span>反向加载 · 团队内部情报</span>
+      <span>证据优先，持续校准</span>
+    </footer>
+  </body>
+</html>

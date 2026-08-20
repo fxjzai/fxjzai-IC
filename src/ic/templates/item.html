@@ -1,0 +1,63 @@
+{% extends "base.html" %}
+{% block title %}{{ item.title }}{% endblock %}
+{% block content %}
+  <article class="detail-page">
+    <a class="back-link" href="/">← 返回情报流</a>
+    <header class="detail-header">
+      <div class="item-meta">
+        <span class="source-pill">{{ item.source.name }}</span>
+        <time>{{ item.discovered_at.strftime('%Y-%m-%d %H:%M UTC') }}</time>
+        <span>REV {{ item.revision }}</span>
+      </div>
+      <h1>{{ item.title }}</h1>
+      <div class="detail-actions">
+        {% if item.canonical_href %}
+          <a class="primary-button" href="{{ item.canonical_href }}" target="_blank" rel="noreferrer">阅读原文 ↗</a>
+        {% endif %}
+        <code>{{ item.content_hash[:12] }}</code>
+      </div>
+    </header>
+
+    <div class="detail-grid">
+      <section class="reading-panel">
+        <p class="eyebrow">EXCERPT</p>
+        <h2>内容摘要</h2>
+        <p class="lead-copy">{{ item.excerpt or '该 Item 暂无可展示摘录，请通过原文链接阅读。' }}</p>
+
+        <div class="fact-grid">
+          <div><span>语言</span><strong>{{ item.language | upper }}</strong></div>
+          <div><span>状态</span><strong>{{ item.status }}</strong></div>
+          <div><span>作者</span><strong>{{ item.authors | join(', ') or '未标注' }}</strong></div>
+          <div><span>原始内容</span><strong>{{ '保留中' if item.raw_payload_available else '已按策略清理' }}</strong></div>
+        </div>
+      </section>
+
+      <aside class="evidence-panel">
+        <p class="eyebrow">TRACEABILITY</p>
+        <h2>证据链</h2>
+        {% if item.score %}
+          <div class="score-card">
+            <span>当前线上 Score</span>
+            <strong>{{ '%.2f' | format(item.score.total) }}</strong>
+            <small>{{ item.score.model_id }} · {{ item.score.policy_version }}</small>
+          </div>
+        {% else %}
+          <div class="score-card muted-card">尚未进入已发布 Digest</div>
+        {% endif %}
+        <ol class="provenance-list">
+          {% for evidence in item.provenance %}
+            <li>
+              <span>{{ evidence.observed_at.strftime('%m-%d %H:%M UTC') }}</span>
+              {% if evidence.source_href %}
+                <a href="{{ evidence.source_href }}" target="_blank" rel="noreferrer">RawDocument ↗</a>
+              {% else %}
+                <span>来源链接不可打开</span>
+              {% endif %}
+              <code>{{ evidence.payload_hash[:12] }}</code>
+            </li>
+          {% endfor %}
+        </ol>
+      </aside>
+    </div>
+  </article>
+{% endblock %}

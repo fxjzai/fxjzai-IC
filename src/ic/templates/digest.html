@@ -1,0 +1,50 @@
+{% extends "base.html" %}
+{% block title %}{{ '每日精选' if digest.kind == 'daily' else '精选流' }}{% endblock %}
+{% block content %}
+  <article class="detail-page digest-page">
+    <a class="back-link" href="/">← 返回情报流</a>
+    <header class="detail-header digest-header">
+      <p class="eyebrow">PUBLISHED DIGEST</p>
+      <h1>{{ '每日精选' if digest.kind == 'daily' else '精选流' }}</h1>
+      <p class="hero-copy">固定候选快照生成的精选结果。每条判断都可以回到 Item 与原始证据。</p>
+      <div class="digest-metadata">
+        <span>{{ digest.entries | length }} 条</span>
+        <span>{{ digest.status }}</span>
+        <span>{{ digest.policy_version }}</span>
+        <time>{{ digest.generated_at.strftime('%Y-%m-%d %H:%M UTC') }}</time>
+      </div>
+    </header>
+
+    <section class="ranked-list">
+      {% for entry in digest.entries %}
+        <article class="ranked-entry">
+          <div class="rank">{{ '%02d' | format(entry.rank) }}</div>
+          <div class="ranked-content">
+            <div class="item-meta">
+              <span class="source-pill">{{ entry.source.name }}</span>
+              <span>{{ entry.score_status }}</span>
+            </div>
+            <h2><a href="/items/{{ entry.item_id }}">{{ entry.title }}</a></h2>
+            <p>{{ entry.summary }}</p>
+            <div class="reason"><strong>为什么入选</strong>{{ entry.recommendation_reason }}</div>
+            <div class="entry-actions">
+              <a class="read-item" href="/items/{{ entry.item_id }}">查看 Item 与证据 →</a>
+              <div
+                class="feedback-control"
+                data-feedback
+                data-digest-id="{{ digest.id }}"
+                data-entry-id="{{ entry.id }}"
+              >
+                <span>这条判断</span>
+                <button type="button" data-feedback-label="useful">有用</button>
+                <button type="button" data-feedback-label="useless">无用</button>
+                <button type="button" data-feedback-label="misclassified">误判</button>
+                <output data-feedback-status aria-live="polite"></output>
+              </div>
+            </div>
+          </div>
+        </article>
+      {% endfor %}
+    </section>
+  </article>
+{% endblock %}

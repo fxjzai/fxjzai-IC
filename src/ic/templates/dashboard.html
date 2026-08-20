@@ -1,0 +1,105 @@
+{% extends "base.html" %}
+{% block title %}今日情报{% endblock %}
+{% block content %}
+  <section class="hero">
+    <div>
+      <p class="eyebrow">TEAM INTELLIGENCE / LIVE</p>
+      <h1>今天，值得注意什么？</h1>
+      <p class="hero-copy">把分散的信息压成一个可回源、可判断、可反馈的团队视野。</p>
+    </div>
+    <div class="hero-stat">
+      <strong>{{ dashboard.total_items }}</strong>
+      <span>已归档 Item</span>
+    </div>
+  </section>
+
+  <section class="section-block">
+    <div class="section-heading">
+      <div>
+        <p class="eyebrow">SOURCE CATALOG</p>
+        <h2>来源接入</h2>
+      </div>
+      <span>{{ dashboard.sources | length }} 个来源</span>
+    </div>
+    <div class="source-grid">
+      {% for source in dashboard.sources %}
+        <article class="source-card">
+          <div class="source-title">
+            <span class="status-dot status-{{ source.status }}" title="配置状态：{{ source.status }}"></span>
+            <h3>{{ source.name }}</h3>
+            <span>{{ source.item_count }} ITEMS</span>
+          </div>
+          {% for endpoint in source.endpoints %}
+            <div class="endpoint-row">
+              <code>{{ endpoint.kind }}</code>
+              <span>{{ endpoint.status }}</span>
+              <time>
+                {% if endpoint.last_observed_at %}
+                  {{ endpoint.last_observed_at.strftime('%m-%d %H:%M UTC') }}
+                {% else %}
+                  尚未采集
+                {% endif %}
+              </time>
+            </div>
+          {% endfor %}
+        </article>
+      {% endfor %}
+    </div>
+  </section>
+
+  <section class="section-block">
+    <div class="section-heading">
+      <div>
+        <p class="eyebrow">PUBLISHED DIGESTS</p>
+        <h2>团队精选</h2>
+      </div>
+      <span>{{ dashboard.total_digests }} 份已发布</span>
+    </div>
+    <div class="digest-strip">
+      {% for digest in dashboard.latest_digests %}
+        <a class="digest-card" href="/digests/{{ digest.id }}">
+          <div>
+            <span class="digest-kind">{{ '每日精选' if digest.kind == 'daily' else '精选流' }}</span>
+            <span class="digest-status">{{ digest.status }}</span>
+          </div>
+          <strong>{{ digest.entry_count }} 条信号</strong>
+          <small>{{ digest.policy_version }} · {{ digest.published_at.strftime('%m-%d %H:%M') }}</small>
+          <span class="digest-arrow">↗</span>
+        </a>
+      {% else %}
+        <div class="empty-state">还没有已发布 Digest。完成一次 Select 后会显示在这里。</div>
+      {% endfor %}
+    </div>
+  </section>
+
+  <section class="section-block intelligence-stream">
+    <div class="section-heading">
+      <div>
+        <p class="eyebrow">LATEST SIGNALS</p>
+        <h2>最新情报</h2>
+      </div>
+      <span>最近 {{ dashboard.latest_items | length }} 条</span>
+    </div>
+    <div class="item-list">
+      {% for item in dashboard.latest_items %}
+        <article class="item-card">
+          <div class="item-meta">
+            <span class="source-pill">{{ item.source.name }}</span>
+            <time>{{ item.discovered_at.strftime('%m-%d %H:%M') }}</time>
+            <span>{{ item.language | upper }}</span>
+          </div>
+          <h3><a href="/items/{{ item.item_id }}">{{ item.title }}</a></h3>
+          {% if item.excerpt %}<p>{{ item.excerpt }}</p>{% endif %}
+          <div class="item-actions">
+            <a href="/items/{{ item.item_id }}">查看证据 <span>→</span></a>
+            {% if item.canonical_href %}
+              <a class="subtle-link" href="{{ item.canonical_href }}" target="_blank" rel="noreferrer">原文 ↗</a>
+            {% endif %}
+          </div>
+        </article>
+      {% else %}
+        <div class="empty-state">还没有 Item。运行一次 Ingest 后，情报会出现在这里。</div>
+      {% endfor %}
+    </div>
+  </section>
+{% endblock %}

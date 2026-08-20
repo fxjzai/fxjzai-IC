@@ -149,6 +149,12 @@ P0 的目标能力面先定义同一只读语义，而不是为每种传输重�
 - AIHOT 可用于同一组织内部情报；任何对外收费、客户交付、代理、镜像、批量再分发或外部 RAG/模型产品必须先获书面授权。
 - 本仓库为团队内部私有项目；未经确认，不公开内部信源、凭据、评分策略或采集数据。
 
+## 最小 Web 工作台
+
+运行 API 后访问根路径 `/` 即可进入团队内部工作台。首页展示来源接入概览、最近采集的 Item 与已发布 Digest；Item 详情提供原文和 provenance，Digest 详情提供推荐理由及“有用 / 无用 / 误判”反馈。
+
+工作台只消费 `ReadIntelligence` 读取面，页面渲染不会现场重新采集、打分或调用模型。Ingest、Snapshot 和 Digest 生成仍由 CLI、调度器或受控 API 触发，避免一次浏览请求意外启动写入管线。
+
 ## 项目状态
 
-**Discovery / tracer bullet 实施。** 已按 Draft 契约建立最小 FastAPI + PostgreSQL 垂直切片，用于验证两个真实 adapter、Snapshot、Digest 与 Feedback；它不是完整 MVP，暂不包含 UI、模型精评、任务队列、Email 或中文 connector。开发服务器操作见 [Runbook](./docs/runbooks/development-server.md)。
+**Discovery / tracer bullet 实施。** 已按 Draft 契约建立 FastAPI + PostgreSQL 垂直切片和最小内部 Web 工作台，用于验证两个真实 adapter、Snapshot、Digest、读取与 Feedback；它不是完整 MVP，暂不包含模型精评、任务队列、Email 或中文 connector。开发服务器操作见 [Runbook](./docs/runbooks/development-server.md)。

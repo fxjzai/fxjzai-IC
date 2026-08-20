@@ -457,9 +457,9 @@ class Ingest:
             return None
         try:
             parsed = urlsplit(value)
-            if not parsed.scheme or not parsed.hostname:
-                return value
             scheme = parsed.scheme.lower()
+            if scheme not in {"http", "https"} or not parsed.hostname:
+                return None
             hostname = parsed.hostname.lower()
             port = parsed.port
             include_port = port is not None and not (

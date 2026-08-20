@@ -1,7 +1,7 @@
 # IC 开发服务器 Runbook
 
 - Target：`mckj@192.168.100.189:/data/fxjzai-ic`
-- Service URL：`http://192.168.100.189:18000`
+- Web 工作台：`http://192.168.100.189:18000/`
 - API docs：`http://192.168.100.189:18000/docs`
 - Runtime：Docker Compose、Python 3.12、PostgreSQL 16
 - Host：Ubuntu 24.04 KVM，20 vCPU，39 GiB RAM，RTX 3060 12 GiB
@@ -47,6 +47,8 @@ docker compose ps
 
 健康响应至少包含 `{"status":"healthy"}`，`postgres` 与 `api` 容器均应显示 healthy。
 `retention` 应显示 running；它在 API 完成迁移并健康后启动，随后每小时执行一次全文保留清理。
+
+部署后还应访问 `/`，确认返回 HTML 且能看到“今天，值得注意什么？”；从首页至少打开一个 Item。存在已发布 Digest 时，再打开 Digest 详情并实测一枚反馈按钮。工作台没有同步 Ingest 按钮，这是有意保持的读写边界。
 
 ## Logs
 

@@ -2,10 +2,13 @@ from __future__ import annotations
 
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from pathlib import Path
 from typing import Any
 
-from fastapi import FastAPI
-from fastapi.responses import JSONResponse
+from fastapi import FastAPI, Request
+from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.staticfiles import StaticFiles
+from fastapi.templating import Jinja2Templates
 from prometheus_client import make_asgi_app
 from pydantic import BaseModel
 from sqlalchemy import text
@@ -21,6 +24,9 @@ from ic.settings import Settings
 class DigestRequest(BaseModel):
     snapshot_id: str
     policy_version: str
+
+
+PACKAGE_DIRECTORY = Path(__file__).parent
 
 
 def create_app(
@@ -48,7 +54,9 @@ def create_app(
         docs_url="/docs",
         redoc_url=None,
     )
+    app.mount("/static", StaticFiles(directory=PACKAGE_DIRECTORY / "static"), name="static")
     app.mount("/metrics", make_asgi_app())
+    templates = Jinja2Templates(directory=PACKAGE_DIRECTORY / "templates")
 
     @app.exception_handler(KeyError)
     async def key_error_handler(_request: object, exc: KeyError) -> JSONResponse:
@@ -63,6 +71,30 @@ def create_app(
         with resolved_database.session() as session:
             session.execute(text("SELECT 1"))
         return {"status": "healthy", "version": __version__}
+
+    @app.get("/", response_class=HTMLResponse)
+    def dashboard(request: Request) -> Any:
+        return templates.TemplateResponse(
+            request=request,
+            name="dashboard.html",
+            context={"dashboard": app.state.read.get_dashboard()},
+        )
+
+    @app.get("/items/{item_id}", response_class=HTMLResponse)
+    def item_page(request: Request, item_id: str) -> Any:
+        return templates.TemplateResponse(
+            request=request,
+            name="item.html",
+            context={"item": app.state.read.get_item(item_id)},
+        )
+
+    @app.get("/digests/{digest_id}", response_class=HTMLResponse)
+    def digest_page(request: Request, digest_id: str) -> Any:
+        return templates.TemplateResponse(
+            request=request,
+            name="digest.html",
+            context={"digest": app.state.read.get_digest_page(digest_id)},
+        )
 
     @app.post("/v1/snapshots")
     def create_snapshot(scope: SelectionScope) -> Any:
