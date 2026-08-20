@@ -178,6 +178,22 @@ class Ingest:
                 fetch_failures.extend(exc.failures)
             except Exception as exc:
                 fetch_failures.append(self._fetch_failure(exc))
+            return self._persist_fetch_result(
+                endpoint,
+                documents,
+                fetch_failures,
+                started_at,
+                started_monotonic,
+            )
+
+    def _persist_fetch_result(
+        self,
+        endpoint: SourceEndpoint,
+        documents: list[FetchedDocument],
+        fetch_failures: list[FetchFailure],
+        started_at: datetime,
+        started_monotonic: float,
+    ) -> IngestResult:
         if not documents and fetch_failures:
             return self._observe(
                 IngestResult(

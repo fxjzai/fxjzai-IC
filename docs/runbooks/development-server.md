@@ -35,7 +35,7 @@ docker compose restart api
 
 ```bash
 cd /data/fxjzai-ic
-docker compose up -d --build api
+docker compose up -d --build api retention
 ```
 
 ## Health
