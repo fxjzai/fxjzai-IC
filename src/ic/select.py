@@ -157,8 +157,8 @@ class Select:
         now = self._clock()
         if now.tzinfo is None:
             raise ValueError("selection clock must be timezone-aware")
-        if scope.kind == "daily" and scope.period_end > now:
-            raise ValueError("daily period has not ended")
+        if scope.period_end > now:
+            raise ValueError(f"{scope.kind} period has not ended")
         normalized_scope = scope.model_copy(
             update={
                 "source_ids": sorted(set(scope.source_ids)),

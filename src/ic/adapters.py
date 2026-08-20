@@ -11,6 +11,24 @@ import httpx
 from ic.domain import FetchedDocument, FetchFailure, PartialFetchError, SourceEndpoint
 
 
+def conditional_request_headers(checkpoint: dict[str, object]) -> dict[str, str]:
+    headers: dict[str, str] = {}
+    if isinstance(etag := checkpoint.get("etag"), str):
+        headers["If-None-Match"] = etag
+    if isinstance(last_modified := checkpoint.get("last_modified"), str):
+        headers["If-Modified-Since"] = last_modified
+    return headers
+
+
+def response_checkpoint(response: httpx.Response) -> dict[str, str]:
+    checkpoint: dict[str, str] = {}
+    if etag := response.headers.get("etag"):
+        checkpoint["etag"] = etag
+    if last_modified := response.headers.get("last-modified"):
+        checkpoint["last_modified"] = last_modified
+    return checkpoint
+
+
 def fetch_failure_from_exception(
     error: BaseException,
     *,
@@ -18,11 +36,12 @@ def fetch_failure_from_exception(
 ) -> FetchFailure:
     retryable = isinstance(error, httpx.TransportError)
     retry_at = None
+    observed_at = datetime.now(UTC)
     if isinstance(error, httpx.HTTPStatusError):
         retryable = error.response.status_code == 429 or error.response.status_code >= 500
         retry_after = error.response.headers.get("retry-after")
         if retry_after and retry_after.isdigit():
-            retry_at = datetime.now(UTC) + timedelta(seconds=int(retry_after))
+            retry_at = observed_at + timedelta(seconds=int(retry_after))
         elif retry_after:
             try:
                 retry_at = parsedate_to_datetime(retry_after)
@@ -32,6 +51,8 @@ def fetch_failure_from_exception(
                     retry_at = retry_at.astimezone(UTC)
             except (TypeError, ValueError):
                 retry_at = None
+    if retryable and retry_at is None:
+        retry_at = observed_at + timedelta(seconds=60)
     return FetchFailure(
         error_type=type(error).__name__,
         message=str(error),
@@ -48,7 +69,13 @@ class NativeRssFetchAdapter:
         self._client = client
 
     async def fetch(self, endpoint: SourceEndpoint) -> AsyncIterator[FetchedDocument]:
-        response = await self._client.get(endpoint.locator, follow_redirects=True)
+        response = await self._client.get(
+            endpoint.locator,
+            follow_redirects=True,
+            headers=conditional_request_headers(endpoint.checkpoint),
+        )
+        if response.status_code == 304:
+            return
         response.raise_for_status()
         media_type = response.headers.get("content-type", "application/xml").split(";", 1)[0]
         yield FetchedDocument(
@@ -56,6 +83,7 @@ class NativeRssFetchAdapter:
             media_type=media_type,
             payload=response.content,
             source_url=str(response.url),
+            checkpoint=response_checkpoint(response),
         )
 
 
@@ -74,7 +102,14 @@ class HorizonHackerNewsFetchAdapter:
     async def fetch(self, endpoint: SourceEndpoint) -> AsyncIterator[FetchedDocument]:
         observed_at = datetime.now(UTC)
         base_url = endpoint.locator.rstrip("/")
-        top_response = await self._client.get(f"{base_url}/topstories.json")
+        headers = conditional_request_headers(endpoint.checkpoint)
+        headers["X-Firebase-ETag"] = "true"
+        top_response = await self._client.get(
+            f"{base_url}/topstories.json",
+            headers=headers,
+        )
+        if top_response.status_code == 304:
+            return
         top_response.raise_for_status()
         story_ids = json.loads(top_response.content)
         if not isinstance(story_ids, list) or not all(
@@ -83,10 +118,13 @@ class HorizonHackerNewsFetchAdapter:
             raise ValueError("Hacker News topstories response must be a list of integer IDs")
 
         fetch_count = max(1, min(int(endpoint.config.get("fetch_top_stories", 30)), 100))
+        max_concurrency = max(1, min(int(endpoint.config.get("max_concurrency", 8)), 16))
         selected_ids = story_ids[:fetch_count]
+        semaphore = asyncio.Semaphore(max_concurrency)
 
         async def fetch_story(story_id: int) -> FetchedDocument:
-            response = await self._client.get(f"{base_url}/item/{story_id}.json")
+            async with semaphore:
+                response = await self._client.get(f"{base_url}/item/{story_id}.json")
             response.raise_for_status()
             return FetchedDocument(
                 observed_at=observed_at,
@@ -102,6 +140,7 @@ class HorizonHackerNewsFetchAdapter:
             payload=top_response.content,
             source_url=f"{base_url}/topstories.json",
             role="discovery",
+            checkpoint=response_checkpoint(top_response),
         )
         results = await asyncio.gather(
             *(fetch_story(story_id) for story_id in selected_ids), return_exceptions=True

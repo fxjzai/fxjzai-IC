@@ -1,5 +1,18 @@
 name: fxjzai-ic
 
+x-ic-service: &ic-service
+  image: fxjzai-ic:local
+  build:
+    context: .
+  environment:
+    IC_DATABASE_URL: postgresql+psycopg://ic:${IC_POSTGRES_PASSWORD}@postgres:5432/ic
+    IC_HTTP_TIMEOUT_SECONDS: "20"
+  init: true
+  read_only: true
+  tmpfs:
+    - /tmp
+  restart: unless-stopped
+
 services:
   postgres:
     image: postgres:16-alpine
@@ -19,11 +32,7 @@ services:
     restart: unless-stopped
 
   api:
-    build:
-      context: .
-    environment:
-      IC_DATABASE_URL: postgresql+psycopg://ic:${IC_POSTGRES_PASSWORD}@postgres:5432/ic
-      IC_HTTP_TIMEOUT_SECONDS: "20"
+    <<: *ic-service
     ports:
       - "${IC_API_PORT:-18000}:8000"
     depends_on:
@@ -40,11 +49,22 @@ services:
       interval: 5s
       timeout: 3s
       retries: 20
-    init: true
-    read_only: true
-    tmpfs:
-      - /tmp
-    restart: unless-stopped
+
+  retention:
+    <<: *ic-service
+    environment:
+      IC_DATABASE_URL: postgresql+psycopg://ic:${IC_POSTGRES_PASSWORD}@postgres:5432/ic
+      IC_HTTP_TIMEOUT_SECONDS: "20"
+      IC_RETENTION_INTERVAL_SECONDS: "${IC_RETENTION_INTERVAL_SECONDS:-3600}"
+    depends_on:
+      api:
+        condition: service_healthy
+    command:
+      [
+        "sh",
+        "-c",
+        'while true; do ic retention; sleep "$${IC_RETENTION_INTERVAL_SECONDS}"; done',
+      ]
 
 volumes:
   ic-postgres-data:

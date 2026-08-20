@@ -95,8 +95,9 @@
 成功判据：
 
 - 相同 snapshot/policy/purpose 不生成第二份 Digest；
-- daily 只在 period 结束后封闭；stream 按过滤条件隔离 watermark，超过 limit 时拒绝推进而不跳过候选；
+- daily 与 stream 都只在 period 结束后封闭；stream 按过滤条件隔离 watermark，超过 limit 时拒绝推进而不跳过候选；
 - replay Digest 不设置发布时间、不推进 watermark，publish 只接受 bootstrap 或已激活策略；
+- replay Score 不进入 ItemView 或直接 Item Feedback 的当前线上上下文；
 - 一次 select 只生成一种 Digest kind；
 - Item revision 后旧 Score 标 stale，历史 Digest 不变；
 - 缺少全文的新评估标记 degraded，不假装完整精评。

@@ -46,6 +46,7 @@ docker compose ps
 ```
 
 健康响应至少包含 `{"status":"healthy"}`，`postgres` 与 `api` 容器均应显示 healthy。
+`retention` 应显示 running；它在 API 完成迁移并健康后启动，随后每小时执行一次全文保留清理。
 
 ## Logs
 
@@ -53,6 +54,7 @@ docker compose ps
 cd /data/fxjzai-ic
 docker compose logs --tail=200 api
 docker compose logs --tail=100 postgres
+docker compose logs --tail=100 retention
 docker compose logs --follow api
 ```
 
@@ -62,6 +64,9 @@ docker compose logs --follow api
 docker compose run --rm api ic ingest openai-news-rss
 
 docker compose run --rm api ic ingest horizon-hacker-news
+
+# retention 容器会每小时自动运行；需要立即验证时可手动执行一次
+docker compose run --rm api ic retention
 ```
 
 随后以当日 UTC 时间窗创建 snapshot；从响应复制 `snapshot_id`，再生成 Digest：

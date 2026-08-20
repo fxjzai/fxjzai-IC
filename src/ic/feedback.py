@@ -5,7 +5,7 @@ from datetime import datetime
 from typing import Literal
 
 from pydantic import BaseModel, Field, model_validator
-from sqlalchemy import desc, select
+from sqlalchemy import select
 
 from ic.db import (
     Database,
@@ -14,7 +14,7 @@ from ic.db import (
     FeedbackRow,
     ItemRevisionRow,
     ItemRow,
-    ScoreRow,
+    latest_published_score_statement,
 )
 
 
@@ -98,15 +98,7 @@ class Feedback:
                 if revision is None:
                     raise KeyError("feedback Item revision does not exist")
                 item_content_hash = revision.content_hash
-                score = session.scalar(
-                    select(ScoreRow)
-                    .where(
-                        ScoreRow.item_id == item.id,
-                        ScoreRow.item_content_hash == item_content_hash,
-                    )
-                    .order_by(desc(ScoreRow.created_at))
-                    .limit(1)
-                )
+                score = session.scalar(latest_published_score_statement(item.id, item_content_hash))
                 if score is not None:
                     score_id = score.id
                     policy_version = score.policy_version

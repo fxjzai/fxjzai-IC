@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime
 
 from pydantic import BaseModel
-from sqlalchemy import desc, select
+from sqlalchemy import select
 
 from ic.db import (
     Database,
@@ -12,8 +12,8 @@ from ic.db import (
     ItemRow,
     ProvenanceRow,
     RawDocumentRow,
-    ScoreRow,
     SourceRow,
+    latest_published_score_statement,
 )
 from ic.select import DigestView, digest_view
 
@@ -77,15 +77,7 @@ class ReadIntelligence:
             source = session.get(SourceRow, item.source_id)
             if revision is None or source is None:
                 raise RuntimeError("Item references missing source or revision")
-            score = session.scalar(
-                select(ScoreRow)
-                .where(
-                    ScoreRow.item_id == item.id,
-                    ScoreRow.item_content_hash == revision.content_hash,
-                )
-                .order_by(desc(ScoreRow.created_at))
-                .limit(1)
-            )
+            score = session.scalar(latest_published_score_statement(item.id, revision.content_hash))
             provenance_rows = list(
                 session.execute(
                     select(ProvenanceRow, RawDocumentRow)

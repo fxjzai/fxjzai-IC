@@ -18,6 +18,7 @@ from ic.db import (
 from ic.domain import EndpointKind, FetchedDocument, SourceEndpoint
 from ic.feedback import Feedback, FeedbackRequest
 from ic.ingest import Ingest
+from ic.read import ReadIntelligence
 from ic.select import Select, SelectionScope
 
 
@@ -137,6 +138,22 @@ async def test_publish_requires_activation_but_tracer_v1_is_explicitly_bootstrap
         proposed_by="ray",
     )
     replayed = calibration.replay(proposal.id, snapshot.id)
+    visible_item = ReadIntelligence(db).get_item(entry.item_id)
+    direct_feedback = Feedback(db).record_feedback(
+        FeedbackRequest(
+            actor_id="ray",
+            target_kind="item",
+            target_id=entry.item_id,
+            item_content_hash=entry.item_content_hash,
+            label="useful",
+            idempotency_key="selection-contract:direct-after-replay",
+        )
+    )
+
+    assert visible_item.score is not None
+    assert visible_item.score.policy_version == "tracer-policy-v1"
+    assert direct_feedback.policy_version == "tracer-policy-v1"
+
     calibration.activate(replayed.id, activated_by="ray")
     published = selector.select(snapshot.id, "tracer-policy-v2", purpose="publish")
 
@@ -188,6 +205,19 @@ def test_daily_snapshot_cannot_close_before_period_end() -> None:
         period_start=datetime(2026, 8, 18, 16, tzinfo=UTC),
         period_end=datetime(2026, 8, 19, 16, tzinfo=UTC),
         timezone="Asia/Shanghai",
+    )
+
+    with pytest.raises(ValueError, match="period has not ended"):
+        selector.create_candidate_snapshot(scope)
+
+
+def test_stream_snapshot_cannot_close_before_period_end() -> None:
+    selector = Select(database(), clock=lambda: datetime(2026, 8, 19, 12, tzinfo=UTC))
+    scope = SelectionScope(
+        kind="stream",
+        period_start=datetime(2026, 8, 19, 11, tzinfo=UTC),
+        period_end=datetime(2026, 8, 19, 13, tzinfo=UTC),
+        timezone="UTC",
     )
 
     with pytest.raises(ValueError, match="period has not ended"):

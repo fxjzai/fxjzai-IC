@@ -1,6 +1,6 @@
 """initial P0 schema
 
-Revision ID: 7e854d2b2d35
+Revision ID: 9cbf6fa0e8aa
 Revises:
 Create Date: 2026-08-20 11:07:32.292900
 """
@@ -10,7 +10,7 @@ from collections.abc import Sequence
 import sqlalchemy as sa
 from alembic import op
 
-revision: str = "7e854d2b2d35"
+revision: str = "9cbf6fa0e8aa"
 down_revision: str | Sequence[str] | None = None
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
@@ -100,16 +100,20 @@ def upgrade() -> None:
         sa.Column("source_id", sa.String(length=80), nullable=False),
         sa.Column("kind", sa.String(length=80), nullable=False),
         sa.Column("locator", sa.Text(), nullable=False),
+        sa.Column("credentials_ref", sa.String(length=240), nullable=True),
+        sa.Column("priority", sa.Integer(), nullable=False),
         sa.Column("policy_version", sa.String(length=80), nullable=False),
         sa.Column("config", sa.JSON(), nullable=False),
         sa.Column("checkpoint", sa.JSON(), nullable=False),
         sa.Column("status", sa.String(length=32), nullable=False),
+        sa.Column("last_observed_at", sa.DateTime(timezone=True), nullable=True),
         sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
         sa.ForeignKeyConstraint(
             ["source_id"],
             ["sources.id"],
         ),
         sa.PrimaryKeyConstraint("id"),
+        sa.UniqueConstraint("kind", "locator"),
     )
     op.create_index(
         op.f("ix_source_endpoints_source_id"), "source_endpoints", ["source_id"], unique=False

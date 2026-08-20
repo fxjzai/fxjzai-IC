@@ -107,7 +107,7 @@ Horizon 的 seam 已下移到 `Ingest` implementation 内部：`FetchAdapter.fet
 
 ## Agent 读取面
 
-P0 先定义同一只读语义，而不是为每种传输重写逻辑：
+P0 的目标能力面先定义同一只读语义，而不是为每种传输重写逻辑：
 
 - `search`
 - `get_item`
@@ -115,6 +115,8 @@ P0 先定义同一只读语义，而不是为每种传输重写逻辑：
 - `get_digest`
 
 `get_story` 只在 Story 进入 P0.5 后增加。MCP、Skill 和 HTTP 都只是这组能力的 adapter；读取路径不得同步调用 LLM。
+
+当前第一发 tracer bullet 只实现并验证 `get_item` 与 `get_digest`；`search`、`list_digests`、RSS 投影和第二个读取 adapter 在第一发通过后补齐，不把它们伪装成已交付能力。
 
 ## 当前验证队列
 

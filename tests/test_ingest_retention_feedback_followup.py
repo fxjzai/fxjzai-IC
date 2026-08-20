@@ -6,7 +6,7 @@ import pytest
 from pydantic import ValidationError
 
 from ic.adapters import HorizonHackerNewsFetchAdapter, NativeRssFetchAdapter
-from ic.db import Database, SourcePolicyRow
+from ic.db import Database, SourceEndpointRow, SourcePolicyRow
 from ic.domain import EndpointKind, FetchedDocument, SourceEndpoint
 from ic.feedback import Feedback, FeedbackRequest
 from ic.ingest import Ingest
@@ -44,6 +44,22 @@ class RevisableFeed:
         )
 
 
+class SameArticleAcrossEndpoints:
+    async def fetch(self, endpoint: SourceEndpoint):  # type: ignore[no-untyped-def]
+        guid = "primary-id" if endpoint.id == "openai-news-rss" else "mirror-id"
+        yield FetchedDocument(
+            observed_at=datetime(2026, 8, 19, tzinfo=UTC),
+            media_type="application/rss+xml",
+            payload=(
+                f"<rss><channel><item><guid>{guid}</guid>"
+                "<title>Canonical article</title>"
+                "<link>https://example.test/canonical-article</link>"
+                "<description>Shared evidence.</description></item></channel></rss>"
+            ).encode(),
+            source_url=endpoint.locator,
+        )
+
+
 async def test_ingest_preserves_retry_after_for_http_status_failures() -> None:
     def rate_limited(request: httpx.Request) -> httpx.Response:
         return httpx.Response(429, headers={"Retry-After": "120"}, request=request)
@@ -65,6 +81,107 @@ async def test_ingest_preserves_retry_after_for_http_status_failures() -> None:
     assert result.errors[0].retry_at is not None
     assert before + timedelta(seconds=120) <= result.errors[0].retry_at
     assert result.errors[0].retry_at <= after + timedelta(seconds=120)
+
+
+async def test_retryable_failure_without_header_gets_a_bounded_default_retry_time() -> None:
+    def unavailable(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(503, request=request)
+
+    database = Database.for_tests()
+    database.create_schema()
+    database.seed_defaults()
+    before = datetime.now(UTC)
+    async with httpx.AsyncClient(transport=httpx.MockTransport(unavailable)) as client:
+        result = await Ingest(
+            database,
+            {EndpointKind.RSS: NativeRssFetchAdapter(client)},
+        ).ingest("openai-news-rss")
+    after = datetime.now(UTC)
+
+    assert result.errors[0].retryable is True
+    assert result.errors[0].retry_at is not None
+    assert before + timedelta(seconds=60) <= result.errors[0].retry_at
+    assert result.errors[0].retry_at <= after + timedelta(seconds=60)
+
+
+async def test_rss_checkpoint_uses_etag_to_avoid_refetching_unchanged_content() -> None:
+    requests: list[httpx.Request] = []
+
+    def conditional_feed(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        if request.headers.get("if-none-match") == '"rss-v1"':
+            return httpx.Response(304, request=request)
+        return httpx.Response(
+            200,
+            content=(
+                b"<rss><channel><item><guid>etag-item</guid><title>ETag item</title>"
+                b"<link>https://example.test/etag</link>"
+                b"<description>Evidence.</description></item></channel></rss>"
+            ),
+            headers={"ETag": '"rss-v1"', "Content-Type": "application/rss+xml"},
+            request=request,
+        )
+
+    database = Database.for_tests()
+    database.create_schema()
+    database.seed_defaults()
+    async with httpx.AsyncClient(transport=httpx.MockTransport(conditional_feed)) as client:
+        ingest = Ingest(database, {EndpointKind.RSS: NativeRssFetchAdapter(client)})
+        first = await ingest.ingest("openai-news-rss")
+        unchanged = await ingest.ingest("openai-news-rss")
+
+    assert first.new_item_count == 1
+    assert first.checkpoint_after["etag"] == '"rss-v1"'
+    assert unchanged.health == "success"
+    assert unchanged.raw_document_refs == []
+    assert unchanged.checkpoint_after == first.checkpoint_after
+    assert len(requests) == 2
+
+
+async def test_horizon_checkpoint_uses_firebase_etag_for_incremental_fetch() -> None:
+    top_requests: list[httpx.Request] = []
+
+    def conditional_hacker_news(request: httpx.Request) -> httpx.Response:
+        if request.url.path.endswith("/topstories.json"):
+            top_requests.append(request)
+            assert request.headers["x-firebase-etag"] == "true"
+            if request.headers.get("if-none-match") == '"hn-v1"':
+                return httpx.Response(304, request=request)
+            return httpx.Response(
+                200,
+                json=[42],
+                headers={"ETag": '"hn-v1"'},
+                request=request,
+            )
+        return httpx.Response(
+            200,
+            json={
+                "id": 42,
+                "title": "Incremental HN story",
+                "score": 1,
+                "time": 1787100000,
+                "url": "https://example.test/hn-incremental",
+            },
+            request=request,
+        )
+
+    database = Database.for_tests()
+    database.create_schema()
+    database.seed_defaults()
+    async with httpx.AsyncClient(transport=httpx.MockTransport(conditional_hacker_news)) as client:
+        ingest = Ingest(
+            database,
+            {EndpointKind.HORIZON_HACKER_NEWS: HorizonHackerNewsFetchAdapter(client)},
+        )
+        first = await ingest.ingest("horizon-hacker-news")
+        unchanged = await ingest.ingest("horizon-hacker-news")
+
+    assert first.new_item_count == 1
+    assert first.checkpoint_after["etag"] == '"hn-v1"'
+    assert unchanged.health == "success"
+    assert unchanged.raw_document_refs == []
+    assert unchanged.checkpoint_after == first.checkpoint_after
+    assert len(top_requests) == 2
 
 
 async def test_partial_fetch_preserves_http_date_retry_after() -> None:
@@ -193,3 +310,29 @@ async def test_ingest_fails_closed_when_policy_denies_processing() -> None:
     assert result.raw_document_refs == []
     assert result.errors[0].error_type == "SourcePolicyDenied"
     assert "process" in result.errors[0].message
+
+
+async def test_cross_endpoint_canonical_url_adds_provenance_without_a_second_item() -> None:
+    database = Database.for_tests()
+    database.create_schema()
+    database.seed_defaults()
+    with database.session() as session, session.begin():
+        session.add(
+            SourceEndpointRow(
+                id="openai-news-rss-mirror",
+                source_id="openai",
+                kind=EndpointKind.RSS.value,
+                locator="https://mirror.example.test/openai.xml",
+                policy_version="internal-v1",
+            )
+        )
+    ingest = Ingest(database, {EndpointKind.RSS: SameArticleAcrossEndpoints()})
+
+    primary = await ingest.ingest("openai-news-rss")
+    mirror = await ingest.ingest("openai-news-rss-mirror")
+    item = ReadIntelligence(database).get_item(primary.item_refs[0])
+
+    assert mirror.item_refs == primary.item_refs
+    assert mirror.new_item_count == 0
+    assert mirror.duplicate_count == 1
+    assert len(item.provenance) == 2

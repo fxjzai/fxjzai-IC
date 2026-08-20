@@ -30,6 +30,7 @@ class FetchedDocument:
     source_url: str
     upstream_id: str | None = None
     role: str = "content"
+    checkpoint: dict[str, str] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)

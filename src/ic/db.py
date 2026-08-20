@@ -16,11 +16,13 @@ from sqlalchemy import (
     Text,
     UniqueConstraint,
     create_engine,
+    select,
     text,
 )
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import DeclarativeBase, Mapped, Session, mapped_column, sessionmaker
 from sqlalchemy.pool import StaticPool
+from sqlalchemy.sql import Select
 
 from ic.domain import EndpointKind, SourceEndpoint
 
@@ -66,16 +68,22 @@ class SourcePolicyRow(Base):
 
 class SourceEndpointRow(Base):
     __tablename__ = "source_endpoints"
+    __table_args__ = (UniqueConstraint("kind", "locator"),)
 
     id: Mapped[str] = mapped_column(String(120), primary_key=True)
     schema_version: Mapped[int] = mapped_column(Integer, default=1)
     source_id: Mapped[str] = mapped_column(ForeignKey("sources.id"), index=True)
     kind: Mapped[str] = mapped_column(String(80))
     locator: Mapped[str] = mapped_column(Text)
+    credentials_ref: Mapped[str | None] = mapped_column(String(240), nullable=True)
+    priority: Mapped[int] = mapped_column(Integer, default=100)
     policy_version: Mapped[str] = mapped_column(String(80))
     config: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
     checkpoint: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
     status: Mapped[str] = mapped_column(String(32), default="active")
+    last_observed_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
 
     def as_domain(self) -> SourceEndpoint:
@@ -304,6 +312,23 @@ class PolicyActivationRow(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
 
 
+def latest_published_score_statement(item_id: str, content_hash: str) -> Select[tuple[ScoreRow]]:
+    """Return the Score visible on the online read path for one Item revision."""
+    return (
+        select(ScoreRow)
+        .join(DigestEntryRow, DigestEntryRow.score_id == ScoreRow.id)
+        .join(DigestRow, DigestRow.id == DigestEntryRow.digest_id)
+        .where(
+            ScoreRow.item_id == item_id,
+            ScoreRow.item_content_hash == content_hash,
+            DigestRow.status.in_(["published", "degraded"]),
+            DigestRow.published_at.is_not(None),
+        )
+        .order_by(DigestRow.published_at.desc(), ScoreRow.created_at.desc(), ScoreRow.id)
+        .limit(1)
+    )
+
+
 class Database:
     def __init__(self, url: str, *, engine: Engine | None = None) -> None:
         self.engine = engine or create_engine(url, pool_pre_ping=True)
@@ -331,6 +356,26 @@ class Database:
         """Serialize deterministic writes in PostgreSQL; SQLite tests are single-process."""
         if self.engine.dialect.name == "postgresql":
             session.execute(text("SELECT pg_advisory_xact_lock(hashtext(:key))"), {"key": key})
+
+    @contextmanager
+    def try_session_lock(self, key: str) -> Iterator[bool]:
+        """Hold a PostgreSQL session lock without keeping a transaction open during I/O."""
+        if self.engine.dialect.name != "postgresql":
+            yield True
+            return
+        with self.engine.connect() as connection:
+            acquired = bool(
+                connection.scalar(text("SELECT pg_try_advisory_lock(hashtext(:key))"), {"key": key})
+            )
+            connection.commit()
+            try:
+                yield acquired
+            finally:
+                if acquired:
+                    connection.execute(
+                        text("SELECT pg_advisory_unlock(hashtext(:key))"), {"key": key}
+                    )
+                    connection.commit()
 
     def seed_defaults(self) -> None:
         with self.session() as session, session.begin():

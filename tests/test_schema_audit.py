@@ -48,3 +48,15 @@ def test_source_policy_version_is_unique_within_a_source() -> None:
     }
 
     assert ("source_id", "version") in unique_column_sets
+
+
+def test_source_endpoint_identity_and_operational_fields_match_the_contract() -> None:
+    table = Base.metadata.tables["source_endpoints"]
+    unique_column_sets = {
+        tuple(column.name for column in constraint.columns)
+        for constraint in table.constraints
+        if isinstance(constraint, UniqueConstraint)
+    }
+
+    assert ("kind", "locator") in unique_column_sets
+    assert {"credentials_ref", "priority", "last_observed_at"}.issubset(table.columns.keys())

@@ -1,3 +1,4 @@
+import asyncio
 from datetime import UTC, datetime
 
 import httpx
@@ -95,3 +96,38 @@ async def test_horizon_hacker_news_keeps_successes_when_one_story_request_fails(
     ]
     assert raised.value.failures[0].upstream_id == "102"
     assert raised.value.failures[0].retryable is True
+
+
+async def test_horizon_hacker_news_bounds_story_request_concurrency() -> None:
+    active_requests = 0
+    peak_requests = 0
+
+    async def respond(request: httpx.Request) -> httpx.Response:
+        nonlocal active_requests, peak_requests
+        if request.url.path == "/v0/topstories.json":
+            return httpx.Response(200, json=[1, 2, 3, 4, 5, 6])
+        active_requests += 1
+        peak_requests = max(peak_requests, active_requests)
+        await asyncio.sleep(0.01)
+        active_requests -= 1
+        story_id = int(request.url.path.split("/")[-1].split(".")[0])
+        return httpx.Response(
+            200,
+            json={"id": story_id, "title": f"Story {story_id}", "time": 1787100000},
+        )
+
+    endpoint = SourceEndpoint(
+        id="endpoint-hn",
+        source_id="source-hn",
+        kind=EndpointKind.HORIZON_HACKER_NEWS,
+        locator="https://hacker-news.firebaseio.com/v0",
+        policy_version="internal-v1",
+        config={"fetch_top_stories": 6, "max_concurrency": 2},
+    )
+    async with httpx.AsyncClient(transport=httpx.MockTransport(respond)) as client:
+        documents = [
+            document async for document in HorizonHackerNewsFetchAdapter(client).fetch(endpoint)
+        ]
+
+    assert len(documents) == 7
+    assert peak_requests == 2

@@ -8,13 +8,14 @@ import time
 import uuid
 from collections.abc import AsyncIterator
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from time import struct_time
 from typing import Protocol
+from urllib.parse import urlsplit, urlunsplit
 
 import feedparser
 from pydantic import BaseModel, Field
-from sqlalchemy import select, update
+from sqlalchemy import or_, select, update
 from sqlalchemy.orm import Session
 
 from ic.adapters import fetch_failure_from_exception
@@ -157,13 +158,26 @@ class Ingest:
             raise KeyError(f"no fetch adapter for endpoint kind: {endpoint.kind}")
         documents: list[FetchedDocument] = []
         fetch_failures: list[FetchFailure] = []
-        try:
-            async for document in adapter.fetch(endpoint):
-                documents.append(document)
-        except PartialFetchError as exc:
-            fetch_failures.extend(exc.failures)
-        except Exception as exc:
-            fetch_failures.append(self._fetch_failure(exc))
+        with self._database.try_session_lock(f"endpoint-fetch:{endpoint.id}") as acquired:
+            if not acquired:
+                return self._observe(
+                    self._failed_before_fetch(
+                        endpoint,
+                        started_at,
+                        "EndpointBusy",
+                        "another worker is already fetching this SourceEndpoint",
+                        retryable=True,
+                        retry_at=datetime.now(UTC) + timedelta(seconds=60),
+                    ),
+                    started_monotonic,
+                )
+            try:
+                async for document in adapter.fetch(endpoint):
+                    documents.append(document)
+            except PartialFetchError as exc:
+                fetch_failures.extend(exc.failures)
+            except Exception as exc:
+                fetch_failures.append(self._fetch_failure(exc))
         if not documents and fetch_failures:
             return self._observe(
                 IngestResult(
@@ -236,9 +250,15 @@ class Ingest:
                         )
                     )
 
-            if documents and not result.errors:
+            if documents:
                 observed_at = max(document.observed_at for document in documents)
-                endpoint_row.checkpoint = {"observed_at": observed_at.isoformat()}
+                endpoint_row.last_observed_at = observed_at
+            if documents and not result.errors:
+                checkpoint = dict(endpoint_row.checkpoint or {})
+                for document in documents:
+                    checkpoint.update(document.checkpoint)
+                checkpoint["observed_at"] = observed_at.isoformat()
+                endpoint_row.checkpoint = checkpoint
                 result.checkpoint_after = dict(endpoint_row.checkpoint)
             result.health = "degraded" if result.errors else "success"
             result.completed_at = datetime.now(UTC)
@@ -280,6 +300,9 @@ class Ingest:
         started_at: datetime,
         error_type: str,
         message: str,
+        *,
+        retryable: bool = False,
+        retry_at: datetime | None = None,
     ) -> IngestResult:
         return IngestResult(
             run_id=str(uuid.uuid4()),
@@ -289,7 +312,14 @@ class Ingest:
             checkpoint_before=endpoint.checkpoint,
             checkpoint_after=endpoint.checkpoint,
             health="failed",
-            errors=[IngestError(error_type=error_type, message=message)],
+            errors=[
+                IngestError(
+                    error_type=error_type,
+                    message=message,
+                    retryable=retryable,
+                    retry_at=retry_at,
+                )
+            ],
         )
 
     @staticmethod
@@ -368,7 +398,7 @@ class Ingest:
                     title=title,
                     authors=authors,
                     published_at=published,
-                    canonical_url=str(entry.get("link") or "").strip() or None,
+                    canonical_url=Ingest._canonicalize_url(str(entry.get("link") or "")),
                     language=str(feed.feed.get("language") or "en"),
                     excerpt=excerpt,
                     body=body or None,
@@ -390,8 +420,8 @@ class Ingest:
             title=str(story["title"]).strip(),
             authors=[str(story.get("by") or "unknown")],
             published_at=datetime.fromtimestamp(int(story["time"]), tz=UTC),
-            canonical_url=str(
-                story.get("url") or f"https://news.ycombinator.com/item?id={story_id}"
+            canonical_url=Ingest._canonicalize_url(
+                str(story.get("url") or f"https://news.ycombinator.com/item?id={story_id}")
             ),
             language="en",
             excerpt=" ".join((body or "").split())[:500] or None,
@@ -405,6 +435,26 @@ class Ingest:
         return datetime.fromtimestamp(calendar.timegm(value), tz=UTC)
 
     @staticmethod
+    def _canonicalize_url(value: str) -> str | None:
+        value = value.strip()
+        if not value:
+            return None
+        try:
+            parsed = urlsplit(value)
+            if not parsed.scheme or not parsed.hostname:
+                return value
+            scheme = parsed.scheme.lower()
+            hostname = parsed.hostname.lower()
+            port = parsed.port
+            include_port = port is not None and not (
+                (scheme == "http" and port == 80) or (scheme == "https" and port == 443)
+            )
+            netloc = f"{hostname}:{port}" if include_port else hostname
+            return urlunsplit((scheme, netloc, parsed.path or "/", parsed.query, ""))
+        except ValueError:
+            return value
+
+    @staticmethod
     def _save_item(
         session: Session,
         endpoint: SourceEndpoint,
@@ -412,10 +462,19 @@ class Ingest:
         discovered_at: datetime,
         parsed: ParsedItem,
     ) -> tuple[str, str]:
+        identity_matches = [ItemRow.identity_key == parsed.identity_key]
+        if parsed.canonical_url is not None:
+            identity_matches.append(ItemRevisionRow.canonical_url == parsed.canonical_url)
         item = session.scalar(
-            select(ItemRow).where(
+            select(ItemRow)
+            .join(
+                ItemRevisionRow,
+                (ItemRevisionRow.item_id == ItemRow.id)
+                & (ItemRevisionRow.content_hash == ItemRow.current_content_hash),
+            )
+            .where(
                 ItemRow.source_id == endpoint.source_id,
-                ItemRow.identity_key == parsed.identity_key,
+                or_(*identity_matches),
             )
         )
         if item is None:

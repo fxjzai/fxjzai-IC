@@ -83,6 +83,7 @@ Horizon 是 `HorizonFetchAdapter` 的候选实现。若某个 Horizon fetcher �
 - 重复内容：成功结果，不视为异常；
 - 数据不变量破坏：终止当前作业并告警；
 - checkpoint 只能在 RawDocument、Item 与 provenance 可靠提交后推进；
+- HTTP 来源优先使用 ETag / Last-Modified 条件请求；同一 endpoint 的跨 worker 抓取使用无长事务的作业锁串行化；
 - worker 按至少一次投递设计，安全重放不得产生重复 Item；
 - 真实内容修改形成显式 revision，不覆盖历史；
 - 单源失败不回滚其他来源的已提交结果。
@@ -113,7 +114,7 @@ async select(
 
 精选流、日报和 Top 3 是同一个 Digest 的不同 `kind/policy/view`，不是三个 module。
 
-CandidateSnapshot 的 Item ref 必须绑定 `item_id + content_hash`。`select` 与策略回放只接收 snapshot id，不得现场重查。日报 snapshot 按 timezone 和固定周期封闭；增量精选 snapshot 按同 kind、同 Source/语言过滤条件的上次已发布 Digest watermark 之后的新 Item、稳定排序与硬上限封闭。若候选数超过上限，P0 必须拒绝封闭并要求提高上限或缩小时间窗，不得推进 watermark 后跳过候选。一个 snapshot 只对应一种 Digest kind。
+CandidateSnapshot 的 Item ref 必须绑定 `item_id + content_hash`。`select` 与策略回放只接收 snapshot id，不得现场重查。任何 snapshot 的 `period_end` 都不得晚于封闭时钟。日报 snapshot 按 timezone 和固定周期封闭；增量精选 snapshot 按同 kind、同 Source/语言过滤条件的上次已发布 Digest watermark 之后的新 Item、稳定排序与硬上限封闭。若候选数超过上限，P0 必须拒绝封闭并要求提高上限或缩小时间窗，不得推进 watermark 后跳过候选。一个 snapshot 只对应一种 Digest kind。
 
 ### 错误与幂等
 
@@ -152,7 +153,11 @@ class ReadIntelligence:
 
 `ItemView` 必须表明具体 content hash、Source、canonical URL、时间、短摘录、当前 Score 版本、provenance 与原始 payload 可用状态；默认不返回 RawDocument 全文。
 
+“当前 Score”只允许来自已正式发布的 Digest；候选策略的 replay Score 不得通过读取或直接 Item Feedback 泄漏为线上上下文。
+
 如果 P0 只有 HTTP，不为了假想传输创建多层 port；当 HTTP 与 MCP/Web 等第二个真实 adapter 共用同一语义后，传输 seam 才成立。
+
+第一发 tracer bullet 只验证 `get_item/get_digest`；`search/list_digests` 与第二个读取 adapter 属于通过第一发后的 P0 补全项。
 
 ## P0：Feedback 校准闭环
 

@@ -34,7 +34,7 @@
 | `Digest` | `id`、`kind`、`snapshot_id`、`period_start`、`period_end`、`timezone`、`policy_version`、`status`、`entries[]`、`generated_at`、`published_at?` | 精选流、日报和 Top 3 的统一产物；entry 至少绑定 `item_id + item_content_hash`、`score_id?`、rank、摘要与推荐理由 |
 | `Feedback` | `id`、`actor_id`、`target_type`、`target_id`、`label`、`reason_code?`、`comment?`、`created_at`、`applied_policy_version?` | 人对 Item 或 Digest entry 的追加式校准事件；label 至少支持 `useful/useless/misclassified` |
 
-`SourceEndpoint.kind` P0 至少允许 `rss/email/web/api`；`wechat` 只有存在通过稳定性、多上游和来源风险验证的真实 adapter 时才启用，不能因枚举存在就宣称支持。
+`SourceEndpoint.kind` 的领域词汇允许 `rss/email/web/api/wechat`，但第一发只启用已有真实 adapter 的 `rss` 与 Horizon HN API；Email、Web 与 WeChat 必须在真实 adapter 通过契约测试后才可宣称支持，不能因字段可存储就宣称已实现。
 
 ## Module 出入参
 
@@ -61,6 +61,8 @@
 - `stream`：由同 kind、同 Source/语言过滤条件的上次已发布 Digest watermark 之后的新 Item、稳定排序和硬上限定义；超过上限时必须拒绝封闭或使用可续传游标，不得推进 watermark 后跳过候选；
 - scope 还可以限制 Source 集合和语言，但不得使用无界历史查询。
 
+所有 kind 的 `period_end` 都不得晚于封闭时钟；未来时间窗不得提前发布或推进 watermark。
+
 创建 snapshot 后必须持久化 `CandidateSnapshot`。`select` 和策略回放只接收 `snapshot_id + policy_version + purpose`，不得现场重新查询 Item。`purpose=publish` 只接受已激活或显式 bootstrap 的策略；`purpose=replay` 产生不设置 `published_at`、不推进 watermark 的评估 Digest。一个 snapshot 只能产生一种 Digest kind；同一次 select 不得同时追加精选流并重算日报。
 
 ### 读取与 Feedback
@@ -73,6 +75,8 @@
 - 原始 payload 是否仍可访问；默认不返回原始全文。
 
 `FeedbackTarget` 必须包含 target kind 与 id。针对推荐结果的反馈优先绑定 `digest_id + digest_entry_id`，并在 Feedback 中固化当时的 `item_id + item_content_hash + score_id + policy_version`；直接 Item 反馈请求必须携带调用方看到的 `item_content_hash`，服务端验证该 revision 存在后再记录，避免落到错误 revision。
+
+ItemView 与直接 Item Feedback 所使用的当前 Score 必须来自已正式发布的 Digest；replay Score 不得覆盖线上读取上下文。
 
 ## 关键不变量
 
