@@ -107,14 +107,15 @@ docker compose exec postgres pg_isready -U ic -d ic
 
 本节在每次部署后更新，记录当前 commit、容器状态和真实请求结果；不得只根据容器启动成功判断 tracer bullet 通过。
 
-### 2026-08-20 首次部署记录
+### 2026-08-20 开发服务器验收记录
 
 | 项目 | 实际状态 |
 | --- | --- |
-| 部署时间 | 2026-08-20 15:01 CST（07:01 UTC 完成验收） |
-| 部署 commit | `39729a6`（`fix: enforce database write dependencies`） |
+| 部署时间 | 2026-08-20 15:52 CST 完成最新验收 |
+| 部署 commit | `ac41bf7`（`feat: add minimal intelligence workspace`） |
 | `docker compose ps` | `postgres` healthy、`api` healthy、`retention` running；只存在这 3 个 `fxjzai-ic` 容器 |
 | `/health` 实际响应 | 从开发机访问 `http://192.168.100.189:18000/health` 返回 `{"status":"healthy","version":"0.1.0"}` |
+| Web 工作台 | `/`、CSS、JavaScript、Item 详情与 Digest 详情均从开发机返回 `200`；Digest 页面包含 `useful/useless/misclassified` 三类反馈控件 |
 | 数据库 | PostgreSQL 首次应用 migration `9cbf6fa0e8aa (head)`；`.env` 权限 `0600`，数据库端口仅绑定 `127.0.0.1:18432` |
 | OpenAI News RSS Ingest | 首次：1 个 RawDocument、1,141 个新 Item、0 错误；第二次：0 新 Item、1,141 duplicate、0 错误 |
 | Horizon Hacker News Ingest | 首次：16 个 RawDocument、15 个新 Item、0 错误；第二次命中 ETag：0 RawDocument、0 Item，checkpoint 不变 |
