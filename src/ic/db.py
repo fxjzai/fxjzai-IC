@@ -342,6 +342,8 @@ class Database:
             connect_args={"check_same_thread": False},
             poolclass=StaticPool,
         )
+        with engine.begin() as connection:
+            connection.exec_driver_sql("PRAGMA foreign_keys=ON")
         return cls("sqlite+pysqlite:///:memory:", engine=engine)
 
     @contextmanager

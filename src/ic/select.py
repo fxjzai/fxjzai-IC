@@ -309,6 +309,7 @@ class Select:
                 published_at=generated_at if purpose == "publish" else None,
             )
             session.add(digest)
+            session.flush()
             snapshot_items = list(
                 session.scalars(
                     sql_select(SnapshotItemRow)
@@ -330,6 +331,7 @@ class Select:
                 ranked.append((item_ref, revision, score_total))
             ranked.sort(key=lambda value: (-value[2], value[0].position))
             digest_is_degraded = False
+            pending_entries: list[DigestEntryRow] = []
             for rank, (item_ref, revision, score_total) in enumerate(ranked, start=1):
                 availability = "full" if revision.body else "excerpt_only"
                 status = "active" if revision.body else "degraded"
@@ -377,7 +379,7 @@ class Select:
                 session.add(score)
                 digest.input_ids = [*digest.input_ids, f"score:{score_id}"]
                 summary = revision.excerpt or revision.title
-                session.add(
+                pending_entries.append(
                     DigestEntryRow(
                         id=str(uuid.uuid5(uuid.NAMESPACE_URL, f"{digest_id}:{rank}")),
                         digest_id=digest_id,
@@ -392,6 +394,8 @@ class Select:
                 )
             if digest_is_degraded:
                 digest.status = "degraded" if purpose == "publish" else "replay_degraded"
+            session.flush()
+            session.add_all(pending_entries)
             session.flush()
             return digest_view(session, digest, reused=False)
 

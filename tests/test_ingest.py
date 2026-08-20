@@ -21,6 +21,29 @@ class FixedAdapter:
         )
 
 
+async def test_new_item_flushes_before_revision_with_foreign_keys_enforced() -> None:
+    database = Database.for_tests()
+    database.create_schema()
+    database.seed_defaults()
+    ingest = Ingest(
+        database,
+        {
+            EndpointKind.RSS: FixedAdapter(
+                b"""<rss><channel><item><guid>foreign-key-order</guid>
+                <title>Foreign key order</title>
+                <link>https://example.test/foreign-key-order</link>
+                <description>Verify parent rows are persisted first.</description>
+                </item></channel></rss>"""
+            )
+        },
+    )
+
+    result = await ingest.ingest("openai-news-rss")
+
+    assert result.health == "success"
+    assert result.new_item_count == 1
+
+
 async def test_replaying_an_endpoint_returns_the_same_item_without_duplication() -> None:
     feed = b"""<?xml version="1.0"?>
     <rss version="2.0"><channel><title>OpenAI</title><item>

@@ -507,6 +507,7 @@ class Ingest:
                 current_content_hash=parsed.content_hash,
             )
             session.add(item)
+            session.flush()
             revision = 1
             outcome = "new"
         elif item.current_content_hash == parsed.content_hash:
