@@ -37,7 +37,16 @@ systemctl enable --now rlradar-worker-window.timer
 
 dc() { docker compose -f docker-compose.yml -f deploy/compose.ghcr.yml "$@"; }
 dc pull
-dc up -d --no-build
+# 注意：这里必须显式列出服务，不要写 `dc up -d --no-build`。
+# 原因是 worker 会采集并调用模型（花钱），而它只应该在闲时窗口里跑，
+# 由 rlradar-worker-window.timer 负责启停。
+dc --profile https up -d --no-build db setup api web caddy
+```
+
+然后把闲时窗口定时器打开（它会接管 worker 的启停）：
+
+```bash
+systemctl enable --now rlradar-worker-window.timer
 ```
 
 ## .env 要点
@@ -55,7 +64,13 @@ dc up -d --no-build
 cd /opt/rl-radar
 git pull
 dc pull
-dc up -d --no-build
+dc --profile https up -d --no-build db setup api web caddy
+```
+
+只更新 worker 时（窗口内它会被定时器自动拉起，不需要手动）：
+
+```bash
+dc --profile https up -d --no-build worker   # 仅当处在闲时窗口内
 ```
 
 ## 闲时窗口

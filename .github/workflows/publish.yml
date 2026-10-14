@@ -66,18 +66,23 @@ jobs:
           IMAGE_LC="$(echo "$IMAGE" | tr '[:upper:]' '[:lower:]')"
           docker push --all-tags "$IMAGE_LC"
 
-      - name: 让 GHCR 包公开（这样服务器拉取不需要凭据）
+      - name: 尝试把 GHCR 包设为公开
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          set -eux
-          # 包第一次推送后才会出现；可见性改公开失败不阻断发布，服务器侧也可以手动改。
+          set -u
+          # GitHub 对 GHCR 的默认行为：即使仓库公开，包也建成私有，需要手工改一次；
+          # 改成公开后每次推送都会保持公开，服务器就能免凭据拉取。
+          # 这里用 if/else 而不是 `|| echo`：后者会让失败伪装成成功（踩过一次）。
           PKG="$(echo "${{ github.repository }}" | cut -d/ -f2 | tr '[:upper:]' '[:lower:]')"
-          gh api --method PATCH "/orgs/${{ github.repository_owner }}/packages/container/${PKG}" \
-            -f visibility=public || \
-          gh api --method PATCH "/user/packages/container/${PKG}" \
-            -f visibility=public || \
-          echo "可见性未自动切换，请在 GHCR 包设置里手动设为 public"
+          if gh api --method PATCH \
+               "/orgs/${{ github.repository_owner }}/packages/container/${PKG}" \
+               -f visibility=public >/dev/null 2>&1; then
+            echo "已把 GHCR 包 ${PKG} 设为 public"
+          else
+            SETTINGS="${{ github.server_url }}/orgs/${{ github.repository_owner }}/packages/container/${PKG}/settings"
+            echo "::warning title=GHCR 包仍为私有::自动切换失败（GITHUB_TOKEN 通常没有改包可见性的权限）。到 ${SETTINGS} 手动改为 Public，设一次即可。"
+          fi
 
       - name: 汇总
         run: |
