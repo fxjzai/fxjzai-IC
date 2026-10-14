@@ -1,0 +1,90 @@
+# 把镜像发布到 GHCR，供服务器 docker compose pull 使用。
+#
+# 触发方式：workflow_run —— 「Check」跑成功后才会发布，测试不过就不会产出坏镜像。
+# 只用 docker CLI，不引入第三方 action（与 check.yml 的约定一致：只用 GitHub 自家 action）。
+name: Publish
+
+on:
+  workflow_run:
+    workflows: ["Check"]
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+concurrency:
+  group: publish-${{ github.event.workflow_run.head_sha || github.sha }}
+  cancel-in-progress: false
+
+jobs:
+  image:
+    # 手动触发时直接跑；workflow_run 触发时要求上游 Check 成功。
+    if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      # 版本与 check.yml 一致：actions/checkout v7.0.1
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # workflow_run 默认检出默认分支，必须显式检出被检查的那个提交。
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+
+      - name: 确认构建上下文与站点配置
+        run: |
+          test -f Dockerfile
+          grep -q 'AIHOT' NOTICE
+          node -e "console.log('image: ghcr.io/' + process.env.GITHUB_REPOSITORY.toLowerCase())"
+
+      - name: 登录 GHCR
+        run: |
+          echo "${{ secrets.GITHUB_TOKEN }}" \
+            | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+
+      - name: 构建镜像（linux/amd64，与服务器架构一致）
+        env:
+          IMAGE: ghcr.io/${{ github.repository }}
+        run: |
+          set -eux
+          IMAGE_LC="$(echo "$IMAGE" | tr '[:upper:]' '[:lower:]')"
+          SHORT_SHA="$(echo "${GITHUB_SHA}" | cut -c1-12)"
+          docker build \
+            --label "org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}" \
+            --label "org.opencontainers.image.revision=${GITHUB_SHA}" \
+            -t "${IMAGE_LC}:latest" \
+            -t "${IMAGE_LC}:sha-${SHORT_SHA}" \
+            .
+          docker image inspect "${IMAGE_LC}:sha-${SHORT_SHA}" --format '{{.Id}} {{.Size}}'
+
+      - name: 推送
+        env:
+          IMAGE: ghcr.io/${{ github.repository }}
+        run: |
+          set -eux
+          IMAGE_LC="$(echo "$IMAGE" | tr '[:upper:]' '[:lower:]')"
+          docker push --all-tags "$IMAGE_LC"
+
+      - name: 让 GHCR 包公开（这样服务器拉取不需要凭据）
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -eux
+          # 包第一次推送后才会出现；可见性改公开失败不阻断发布，服务器侧也可以手动改。
+          PKG="$(echo "${{ github.repository }}" | cut -d/ -f2 | tr '[:upper:]' '[:lower:]')"
+          gh api --method PATCH "/orgs/${{ github.repository_owner }}/packages/container/${PKG}" \
+            -f visibility=public || \
+          gh api --method PATCH "/user/packages/container/${PKG}" \
+            -f visibility=public || \
+          echo "可见性未自动切换，请在 GHCR 包设置里手动设为 public"
+
+      - name: 汇总
+        run: |
+          {
+            echo "### 镜像已发布"
+            echo
+            echo "- \`ghcr.io/${{ github.repository }}:latest\`"
+            echo "- \`ghcr.io/${{ github.repository }}:sha-$(echo "${GITHUB_SHA}" | cut -c1-12)\`"
+            echo "- 提交：\`${GITHUB_SHA}\`"
+          } >> "$GITHUB_STEP_SUMMARY"

@@ -1,0 +1,23 @@
+# 服务器上用的覆盖文件：不再本地构建，改用 CI 推到 GHCR 的镜像。
+#
+# 用法（在仓库根目录）：
+#   docker compose -f docker-compose.yml -f deploy/compose.ghcr.yml pull
+#   docker compose -f docker-compose.yml -f deploy/compose.ghcr.yml up -d --no-build
+#
+# `build: !reset null` 把基础文件里的 build 去掉，避免在 2GB 内存的服务器上构建 OOM；
+# 命令里同时带 --no-build 作为双保险。
+name: rlradar
+
+services:
+  setup:
+    image: ghcr.io/fxjzai/rl-radar:latest
+    build: !reset null
+  api:
+    image: ghcr.io/fxjzai/rl-radar:latest
+    build: !reset null
+  worker:
+    image: ghcr.io/fxjzai/rl-radar:latest
+    build: !reset null
+  web:
+    image: ghcr.io/fxjzai/rl-radar:latest
+    build: !reset null

@@ -1,0 +1,11 @@
+[Unit]
+Description=每分钟检查一次 RL-Radar worker 的闲时窗口
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=1min
+AccuracySec=15s
+Unit=rlradar-worker-window.service
+
+[Install]
+WantedBy=timers.target

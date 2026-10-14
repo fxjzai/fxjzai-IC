@@ -1,0 +1,15 @@
+[Unit]
+Description=RL-Radar worker 闲时窗口开关（DeepSeek 错峰计费）
+Documentation=https://github.com/fxjzai/rl-radar
+After=docker.service network-online.target
+Wants=network-online.target
+Requires=docker.service
+
+[Service]
+Type=oneshot
+WorkingDirectory=/opt/rl-radar
+Environment=RLRADAR_DIR=/opt/rl-radar
+Environment=RLRADAR_PROJECT=rlradar
+ExecStart=/opt/rl-radar/deploy/rlradar-worker-window.sh
+StandardOutput=journal
+StandardError=journal
