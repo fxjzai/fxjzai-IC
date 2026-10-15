@@ -26,6 +26,7 @@
 - `contactEmail`：对外联系邮箱（选填），填了就在 `llms.txt` 和给 Agent 的使用说明里写成授权联系方式。
 - `footerNote`：关于页底部的一行小字。默认是一行框架署名“由 AIHOT 开源框架驱动”，可以留也可以删（设成 `null`）。
 - `icp`：中国大陆网站的备案号，填了就显示在页脚。
+- `officialUrl`：品牌官网地址，显示在桌面侧栏和手机「我的」页的「返回官网」入口；本站为 `https://fxjzai.com/`。
 - `github`：源码仓库的地址（选填），填了就在侧栏和“我的”页底部显示“GitHub 开源”。
 - `llmsIntro`：`llms.txt` 里一句话介绍下面的一段详细介绍（选填）。
 - `rootIcons`：标准图标以外也放在网站根目录的图标，`site/brand/` 里的文件名（选填）。
@@ -113,6 +114,8 @@
 这一步决定了你的站“选得准不准”。
 
 ## 6. 品牌：`site/brand/`
+
+本站使用 RLoad 原始回环箭头与红斜杠 Logo；黑标用于图标和浅色背景，页面字标通过 `currentColor` 适配深浅主题。配色参考 OpenDesign 的 Nothing 中性色与细边框，使用品牌红 `#FF332F`；浅色小字与按钮使用更深的红色以保证对比度。主题色位于 `apps/web/app/app.css`，浏览器主题色同步维护 `root.tsx`、`lib/local-state.ts` 和 `site/public/manifest.webmanifest`。分享图与文章海报同步使用黑白红和品牌字标（`wordmark.svg` / `wordmark-dark.svg`，文字轮廓由现有 Noto Sans SC Bold 字体生成）；改变模板后同步提升 `OG_TEMPLATE_VERSION` / `POSTER_TEMPLATE_VERSION` 以更新缓存。保留原有资讯布局、主题切换与浏览器字体偏好。本站的 `github` 与 `footerNote` 设为 `null`，不在读者界面展示源码入口或框架署名；仓库许可证保持原样。
 
 - `logo.svg`、`icon.png`（512）、`icon-192.png`、`apple-icon.png`（180）、`favicon.ico`：站点图标。
 - `Logo.tsx`：网页左上角的站名标志，默认用站名文字排出来；有自己的 Logo，把 `Wordmark` 换成你的 SVG，参数保持不变。

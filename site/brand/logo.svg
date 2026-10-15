@@ -1,11 +1,10 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="反向加载">
-  <rect width="512" height="512" rx="113" fill="#101417"/>
-  <path d="M256 256 L256 51.2 A204.8 204.8 0 0 1 400.8 111.2 Z" fill="#2ce2e8" fill-opacity="0.27"/>
-  <g fill="none" stroke="#2ce2e8" stroke-width="17.4">
-    <circle cx="256" cy="256" r="86"/>
-    <circle cx="256" cy="256" r="143.4"/>
-    <circle cx="256" cy="256" r="204.8"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 513 501" role="img" aria-labelledby="title desc">
+  <title id="title">Arrow loop logo on white background</title>
+  <desc id="desc">A rounded arrow loop with a red diagonal slash.</desc>
+  <g id="black-arrow-loop" fill="none" stroke="#050505" stroke-width="34" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M 202 212 C 170 244 134 273 117 313 C 92 384 153 439 213 431 C 253 426 278 396 306 365 L 424 244 C 481 186 474 99 404 64 C 344 35 293 63 248 112 L 210 153"/>
+    <path d="M 210 153 L 220 76"/>
+    <path d="M 210 153 L 285 154"/>
   </g>
-  <path d="M256 256 L400.8 111.2" stroke="#2ce2e8" stroke-width="23.6" stroke-linecap="round"/>
-  <circle cx="256" cy="256" r="26.6" fill="#2ce2e8"/>
+  <path id="red-slash" d="M 205 341 L 355 191" fill="none" stroke="#FF332F" stroke-width="34" stroke-linecap="round"/>
 </svg>

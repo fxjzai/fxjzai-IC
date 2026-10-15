@@ -5,7 +5,7 @@ import { Wordmark } from "@aihot/site/brand/Logo.tsx";
 import { useChangelogSeen } from "../../lib/local-state";
 import { sidebar, sidebarIsActive, type NavItem } from "./nav";
 import { ThemeSwitch } from "./ThemeSwitch";
-import { IconGithub } from "../icons";
+import { IconArrowUpRight, IconGithub } from "../icons";
 
 /** True while the changelog has an entry newer than the one this reader last opened. */
 export function useChangelogDot(latestVersion: string | null): boolean {
@@ -58,6 +58,10 @@ export function Sidebar({ changelogVersion }: { changelogVersion: string | null 
         ))}
       </nav>
       <div className="mt-2 space-y-2.5 px-1 pt-1">
+        <a href={SITE.officialUrl} className="mx-1 flex h-10 items-center justify-between rounded-control border border-line px-3 text-[12.5px] font-medium text-ink-3 transition-colors hover:border-accent hover:text-accent">
+          返回官网
+          <IconArrowUpRight size={15} />
+        </a>
         {SITE.github && (
           <a
             href={SITE.github}

@@ -6,8 +6,8 @@
 @source "../../../modules/*/{web.tsx,web/**}";
 
 /* ---------------------------------------------------------------------------
-   Design tokens: warm off-white paper, ink text, one teal accent (cyan in
-   dark), hairline borders, no gradients.
+   Design tokens: Nothing / OpenDesign neutral surfaces and hairline borders,
+   adapted to RLoad black / white / red. Keep the existing reading density.
    Components use the semantic names below; values change per theme only.
    --------------------------------------------------------------------------- */
 
@@ -92,54 +92,55 @@
   --gutter-l: max(16px, env(safe-area-inset-left));
   --gutter-r: max(16px, env(safe-area-inset-right));
   color-scheme: light;
-  --bg: #faf9f6;
-  --bg-sunk: #f3f3ef;
-  --bg-muted: #e9ede9;
+  --bg: #f5f5f5;
+  --bg-sunk: #eeeeee;
+  --bg-muted: #e5e7eb;
   --surface: #ffffff;
-  --surface-2: #fdfdfb;
+  --surface-2: #fafafa;
   --raised: #ffffff;
-  --sidebar: #fdfdfb;
-  --daybar: #f0f2ee;
-  --field: #eef1ed;
-  --ink: #202a30;
-  --ink-2: #303c42;
-  --ink-3: #59656b;
-  --ink-4: #657176;
-  --line: #dfe4e1;
-  --line-strong: #d1d9d5;
-  --line-soft: #e9ede9;
-  --accent: #176b75;
-  --accent-ink: #145f68;
-  --accent-soft: rgba(23, 107, 117, 0.08);
-  --accent-softer: rgba(23, 107, 117, 0.05);
+  --sidebar: #ffffff;
+  --daybar: #eeeeee;
+  --field: #eeeeee;
+  --ink: #000000;
+  --ink-2: #303030;
+  --ink-3: #585a5a;
+  --ink-4: #666666;
+  --line: #e5e7eb;
+  --line-strong: #d1d1d1;
+  --line-soft: #eeeeee;
+  /* Darker red for small text / filled controls on white; the Logo keeps #FF332F. */
+  --accent: #c62623;
+  --accent-ink: #b91c1c;
+  --accent-soft: rgba(255, 51, 47, 0.08);
+  --accent-softer: rgba(255, 51, 47, 0.04);
   --accent-contrast: #ffffff;
-  --note: #526f72;
-  --hot: #b3402a;
-  --hot-soft: rgba(179, 64, 42, 0.08);
+  --note: #585a5a;
+  --hot: #c62623;
+  --hot-soft: rgba(255, 51, 47, 0.08);
   --amber: #b8873a;
   --amber-ink: #7c5a24;
   --amber-soft: rgba(184, 135, 58, 0.1);
   --ok: #2f7d5c;
   --ok-soft: rgba(47, 125, 92, 0.1);
   --ok-ink: #2a6e51;
-  --rank-1: #b3402a;
-  --rank-2: #a3642f;
-  --rank-3: #96702e;
-  --rank-rest: #6b7684;
-  --shadow-card: 0 1px 2px rgba(32, 42, 48, 0.025);
-  --shadow-card-hover: 0 3px 12px rgba(32, 42, 48, 0.055);
-  --shadow-soft: 0 4px 12px rgba(28, 39, 51, 0.06);
-  --shadow-thumb: 0 1px 2px rgba(28, 39, 51, 0.1), 0 1px 1px rgba(28, 39, 51, 0.04);
-  --shadow-pop: 0 12px 32px rgba(28, 39, 51, 0.12);
-  --prose-ink: #26323a;
-  --code-bg: #f6f7f4;
-  --code-keyword: #006d77;
+  --rank-1: #c62623;
+  --rank-2: #585a5a;
+  --rank-3: #666666;
+  --rank-rest: #666666;
+  --shadow-card: 0 1px 2px rgba(0, 0, 0, 0.025);
+  --shadow-card-hover: 0 3px 12px rgba(0, 0, 0, 0.055);
+  --shadow-soft: 0 4px 12px rgba(0, 0, 0, 0.06);
+  --shadow-thumb: 0 1px 2px rgba(0, 0, 0, 0.1), 0 1px 1px rgba(0, 0, 0, 0.04);
+  --shadow-pop: 0 12px 32px rgba(0, 0, 0, 0.12);
+  --prose-ink: #303030;
+  --code-bg: #eeeeee;
+  --code-keyword: #b91c1c;
   --code-string: #2f6f44;
   --code-number: #9a6700;
   --code-title: #6f42c1;
   --code-variable: #a13d10;
   --code-meta: #b42348;
-  --selection: rgba(23, 107, 117, 0.16);
+  --selection: rgba(255, 51, 47, 0.16);
 }
 
 @media (min-width: 961px) {
@@ -150,54 +151,54 @@
 
 [data-theme="dark"] {
   color-scheme: dark;
-  --bg: #13191c;
-  --bg-sunk: #182024;
-  --bg-muted: #202a2f;
-  --surface: #1a2226;
-  --surface-2: #1d272b;
-  --raised: #202a2f;
-  --sidebar: #161e21;
-  --daybar: #182024;
+  --bg: #050505;
+  --bg-sunk: #111111;
+  --bg-muted: #202020;
+  --surface: #111111;
+  --surface-2: #161616;
+  --raised: #202020;
+  --sidebar: #0a0a0a;
+  --daybar: #111111;
   --field: rgba(255, 255, 255, 0.06);
-  --ink: #e7eceb;
-  --ink-2: #d2dada;
-  --ink-3: #a5b0b3;
-  --ink-4: #89979d;
-  --line: rgba(255, 255, 255, 0.08);
-  --line-strong: rgba(255, 255, 255, 0.12);
+  --ink: #f5f5f5;
+  --ink-2: #dedede;
+  --ink-3: #b3b3b3;
+  --ink-4: #999999;
+  --line: rgba(255, 255, 255, 0.1);
+  --line-strong: rgba(255, 255, 255, 0.16);
   --line-soft: rgba(255, 255, 255, 0.06);
-  --accent: #12ccd8;
-  --accent-ink: #2ce2e8;
-  --accent-soft: rgba(18, 204, 216, 0.12);
-  --accent-softer: rgba(18, 204, 216, 0.06);
+  --accent: #ff332f;
+  --accent-ink: #ff706d;
+  --accent-soft: rgba(255, 51, 47, 0.12);
+  --accent-softer: rgba(255, 51, 47, 0.06);
   --accent-contrast: #000000;
-  --note: #8fb8a8;
-  --hot: #d86a52;
-  --hot-soft: rgba(216, 106, 82, 0.12);
+  --note: #b3b3b3;
+  --hot: #ff706d;
+  --hot-soft: rgba(255, 51, 47, 0.12);
   --amber: #d3b26a;
   --amber-ink: #d3b26a;
   --amber-soft: rgba(211, 178, 106, 0.12);
   --ok: #5fc79a;
   --ok-soft: rgba(95, 199, 154, 0.12);
   --ok-ink: #7fd1ad;
-  --rank-1: #d86a52;
-  --rank-2: #d18a5e;
-  --rank-3: #d3b26a;
-  --rank-rest: #7b869a;
+  --rank-1: #ff706d;
+  --rank-2: #b3b3b3;
+  --rank-3: #999999;
+  --rank-rest: #999999;
   --shadow-card: none;
   --shadow-card-hover: none;
   --shadow-soft: 0 6px 18px rgba(0, 0, 0, 0.35);
   --shadow-thumb: 0 1px 2px rgba(0, 0, 0, 0.45);
   --shadow-pop: 0 16px 40px rgba(0, 0, 0, 0.45);
-  --prose-ink: #d7dfdf;
-  --code-bg: #10151c;
-  --code-keyword: #78dce8;
+  --prose-ink: #dedede;
+  --code-bg: #0a0a0a;
+  --code-keyword: #ff706d;
   --code-string: #a9dc76;
   --code-number: #ffd866;
   --code-title: #ab9df2;
   --code-variable: #fc9867;
   --code-meta: #ff6188;
-  --selection: rgba(18, 204, 216, 0.22);
+  --selection: rgba(255, 51, 47, 0.22);
 }
 
 @layer base {
